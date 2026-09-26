@@ -64,7 +64,22 @@ Butler = "sovvie/butler@^1.0.0"
 
 ## Tools
 
-`sof run tools install|list|add` manages external tools (rojo, selene, luau-lsp, ...) declared under `[tools]` in `sof.toml`, through Rokit. `sof run install` installs packages and tools in one go.
+sof has [Rokit](https://github.com/rojo-rbx/rokit) built in, so nobody on the project installs or runs Rokit (or Aftman/Foreman) themselves. List a project's tools under `[tools]` in `sof.toml`:
+
+```toml
+[tools]
+rojo = "rojo-rbx/rojo@7.6.1"
+selene = "Kampfkarren/selene@0.30.1"
+```
+
+```bash
+sof run install                       # packages + tools
+sof run tools install                 # tools only
+sof run tools add rojo-rbx/rojo       # add the latest release to [tools] and install it
+sof run tools list
+```
+
+sof downloads its own Rokit into `~/.sof/rokit` and sets it up the first time (the installer does this too, or run `sof run tools setup`): tools are linked into `~/.rokit/bin`, which is added to your PATH, and each tool runs at the version pinned in the nearest `rokit.toml`. sof writes that `rokit.toml` from `[tools]`, so `sof.toml` is the only file you edit; gitignore the generated `rokit.toml`. If another toolchain manager's copy of a tool comes first on PATH, `sof run tools install` warns about it. `sof run tools rokit <args>` runs the built-in Rokit directly for anything else.
 
 ## Add-ons
 

@@ -1,6 +1,7 @@
 # Installs sof for the current user (Windows).
 #   irm https://github.com/sovvie/sof/releases/latest/download/install.ps1 | iex
-# Set $env:SOF_CLI_REPO to install from a fork, $env:SOF_HOME to change the install folder.
+# Set $env:SOF_CLI_REPO to install from a fork, $env:SOF_HOME to change the install folder,
+# $env:SOF_SKIP_TOOLS to skip setting up the built-in Rokit.
 
 $ErrorActionPreference = "Stop"
 
@@ -69,7 +70,17 @@ if (-not $env:SOF_SKIP_PATH -and -not (($userPath -split ";") -contains $binDir)
 }
 $env:Path = "$env:Path;$binDir"
 
-Write-Host ""
 & (Join-Path $binDir "sof.cmd") --version | Out-Null
+
+# sof has Rokit built in: set it up now so `sof run install` can install a project's tools.
+if (-not $env:SOF_SKIP_TOOLS) {
+    Write-Host "Setting up tools (built-in Rokit)..."
+    & (Join-Path $binDir "sof.cmd") run tools setup
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Tool setup failed; it will be retried the first time you run: sof run install" -ForegroundColor Yellow
+    }
+}
+
+Write-Host ""
 Write-Host "sof $version is installed. Open a new terminal, then run: sof --help" -ForegroundColor Green
 Write-Host "Optional features: sof run addon list"

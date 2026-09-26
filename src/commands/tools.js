@@ -1,5 +1,9 @@
 "use strict";
 
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
 const { ensureRokit } = require("../rokit/bootstrap");
 const { runRokit } = require("../rokit/executor");
 const { addToolToConfig, prepareRokitManifest } = require("../rokit/manifest");
@@ -31,11 +35,20 @@ COMMANDS:
       --alias <name>                  Override alias written into [tools]
       -h, --help                      Show add command help
 
+  setup
+    sof run tools setup
+    Download the built-in Rokit and put its tool folder (~/.rokit/bin) on PATH.
+    Runs automatically on first install; the sof installer runs it too.
+
   self-update
     sof run tools self-update
     Redownload/update Sof-managed Rokit binary
     OPTIONS:
       -h, --help                      Show self-update command help
+
+  rokit
+    sof run tools rokit <arguments...>
+    Run the built-in Rokit directly (you shouldn't normally need this)
 `;
 
 const INSTALL_HELP_TEXT = `
@@ -80,7 +93,11 @@ OPTIONS:
 `;
 
 function displayPath(targetPath) {
-  const relativePath = require("path").relative(process.cwd(), targetPath);
+  const relativePath = path.relative(process.cwd(), targetPath);
+  if (relativePath.startsWith("..")) {
+    const fromHome = path.relative(os.homedir(), targetPath);
+    return fromHome.startsWith("..") ? targetPath : path.join("~", fromHome);
+  }
   return relativePath || ".";
 }
 
@@ -229,6 +246,77 @@ async function fetchLatestReleaseVersion(owner, repo) {
   return resolvedVersion;
 }
 
+const ROKIT_BIN_DIR = path.join(os.homedir(), ".rokit", "bin");
+const EXE_SUFFIX = process.platform === "win32" ? ".exe" : "";
+
+// Rokit runs tools through links in ~/.rokit/bin, which `rokit self-install` creates and adds to
+// PATH. sof ships its own Rokit binary, so it does that setup itself: users never install Rokit.
+async function ensureRokitSetup(cwd) {
+  const bootstrapResult = await ensureRokit();
+  const rokitLink = path.join(ROKIT_BIN_DIR, `rokit${EXE_SUFFIX}`);
+
+  if (bootstrapResult.didDownload || !fs.existsSync(rokitLink)) {
+    console.log("Setting up Rokit (tool folder ~/.rokit/bin, added to PATH)...");
+    const setupExitCode = await runRokit(["self-install"], cwd || process.cwd());
+    if (setupExitCode !== 0) {
+      console.warn(
+        `  ! Rokit self-install exited with ${setupExitCode}. Continuing because Sof invokes Rokit directly.`
+      );
+    }
+    return { ...bootstrapResult, didSetup: true };
+  }
+
+  return { ...bootstrapResult, didSetup: false };
+}
+
+function normalizeDir(directory) {
+  const resolved = path.resolve(directory);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+// Another toolchain manager (Aftman, Foreman) earlier on PATH would shadow the Rokit links with
+// its own copies of rojo/selene/..., which then ignore the versions pinned in sof.toml.
+function findShadowedTools(toolAliases) {
+  const directories = String(process.env.PATH || "")
+    .split(path.delimiter)
+    .filter(Boolean);
+  const rokitIndex = directories.findIndex((directory) => normalizeDir(directory) === normalizeDir(ROKIT_BIN_DIR));
+  const searchUntil = rokitIndex === -1 ? directories.length : rokitIndex;
+  const shadowed = [];
+
+  for (const alias of toolAliases) {
+    for (const directory of directories.slice(0, searchUntil)) {
+      const candidates = process.platform === "win32" ? [`${alias}.exe`, `${alias}.cmd`, `${alias}.bat`] : [alias];
+      const found = candidates.map((name) => path.join(directory, name)).find((file) => fs.existsSync(file));
+      if (found) {
+        shadowed.push({ alias, path: found });
+        break;
+      }
+    }
+  }
+
+  return { shadowed, rokitOnPath: rokitIndex !== -1 };
+}
+
+function printPathWarnings(toolAliases, didSetup) {
+  const { shadowed, rokitOnPath } = findShadowedTools(toolAliases);
+
+  if (!rokitOnPath) {
+    console.log(
+      didSetup
+        ? "Tools are ready. Open a new terminal so ~/.rokit/bin is on your PATH."
+        : `  ! ${displayPath(ROKIT_BIN_DIR)} isn't on PATH in this terminal. Open a new one, or run: sof run tools setup`
+    );
+  }
+
+  for (const entry of shadowed) {
+    console.warn(
+      `  ! "${entry.alias}" resolves to ${entry.path} before sof's version. ` +
+        `Remove that copy or move ${displayPath(ROKIT_BIN_DIR)} earlier on PATH.`
+    );
+  }
+}
+
 async function runRokitCommand(args, cwd, commandLabel) {
   const exitCode = await runRokit(args, cwd);
   if (exitCode !== 0) {
@@ -272,21 +360,13 @@ async function runToolsInstall(configPathArg) {
 
   console.log(`Generated internal manifest: ${displayPath(manifest.rokitManifestPath)}`);
 
-  const bootstrapResult = await ensureRokit();
-  if (bootstrapResult.didDownload) {
-    console.log("Running first-time Rokit setup...");
-    const setupExitCode = await runRokit(["self-install"], manifest.configDirectory);
-    if (setupExitCode !== 0) {
-      console.warn(
-        `  ! Rokit self-install exited with ${setupExitCode}. Continuing because Sof invokes Rokit directly.`
-      );
-    }
-  }
+  const setupResult = await ensureRokitSetup(manifest.configDirectory);
 
   await runRokitCommand(["install", "--no-trust-check"], manifest.configDirectory, "install");
 
   const scaffoldResult = scaffoldToolConfigs(manifest.configDirectory, toolAliases);
   printScaffoldSummary(scaffoldResult);
+  printPathWarnings(toolAliases, setupResult.didSetup);
 
   return {
     skipped: false,
@@ -360,6 +440,23 @@ async function runSelfUpdate(argv) {
   console.log(`Rokit ${result.version || "(unknown version)"} is ready at ${result.binaryPath}`);
 }
 
+async function runSetup(argv) {
+  if (argv.includes("-h") || argv.includes("--help")) {
+    console.log(HELP_TEXT);
+    process.exit(0);
+  }
+
+  const result = await ensureRokitSetup(process.cwd());
+  const version = result.version ? ` ${result.version}` : "";
+  console.log(`Rokit${version} is set up; tools install into ${displayPath(ROKIT_BIN_DIR)}.`);
+  printPathWarnings([], result.didSetup);
+}
+
+async function runRokitPassthrough(argv) {
+  const exitCode = await runRokit(argv, process.cwd());
+  process.exitCode = exitCode;
+}
+
 async function runTools(argv) {
   const command = argv[0];
   const rest = argv.slice(1);
@@ -389,10 +486,21 @@ async function runTools(argv) {
     return;
   }
 
+  if (command === "setup") {
+    await runSetup(rest);
+    return;
+  }
+
+  if (command === "rokit") {
+    await runRokitPassthrough(rest);
+    return;
+  }
+
   throw new Error(`Unknown tools command: ${command}`);
 }
 
 module.exports = {
+  ensureRokitSetup,
   runTools,
   runToolsInstall,
 };

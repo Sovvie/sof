@@ -18,7 +18,7 @@ COMMANDS:
   run package check [config]                      Validate package require alias integrity
   run package outdated [config]                   Show available package updates
   run package search <query>                      Search package indexes
-  run tools install|list|add|self-update          Manage external tools (rojo, selene, ...) via Rokit
+  run tools install|list|add|setup|self-update    Tools (rojo, selene, ...) via sof's built-in Rokit
   run addon list|add|remove|update|publish        Optional features (docs, video, uploader, ...)
   run self update                                 Update sof itself
 
