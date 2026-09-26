@@ -63,11 +63,19 @@ $entry = Join-Path $cliDir "bin\sof.js"
 Set-Content -Path (Join-Path $binDir "sof.cmd") -Value "@echo off`r`nnode `"$entry`" %*" -Encoding ASCII
 Set-Content -Path (Join-Path $binDir "sof.ps1") -Value "node `"$entry`" @args" -Encoding ASCII
 
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+# Edit the registry value directly: [Environment]::SetEnvironmentVariable would rewrite PATH as a
+# plain string, which stops entries like %USERPROFILE%\... from expanding.
+$envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+$userPath = [string]$envKey.GetValue("Path", "", "DoNotExpandEnvironmentNames")
 if (-not $env:SOF_SKIP_PATH -and -not (($userPath -split ";") -contains $binDir)) {
-    [Environment]::SetEnvironmentVariable("Path", "$userPath;$binDir", "User")
+    $newPath = (@($userPath.TrimEnd(";"), $binDir) | Where-Object { $_ }) -join ";"
+    $envKey.SetValue("Path", $newPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    # Setting (then clearing) a variable through .NET broadcasts the change to new processes.
+    [Environment]::SetEnvironmentVariable("SOF_PATH_REFRESH", "1", "User")
+    [Environment]::SetEnvironmentVariable("SOF_PATH_REFRESH", $null, "User")
     Write-Host "Added $binDir to your PATH."
 }
+$envKey.Close()
 $env:Path = "$env:Path;$binDir"
 
 & (Join-Path $binDir "sof.cmd") --version | Out-Null
@@ -83,4 +91,5 @@ if (-not $env:SOF_SKIP_TOOLS) {
 
 Write-Host ""
 Write-Host "sof $version is installed. Open a new terminal, then run: sof --help" -ForegroundColor Green
+Write-Host "(Editors like Cursor/VS Code only see the new PATH after you fully quit them, all windows.)"
 Write-Host "Optional features: sof run addon list"
