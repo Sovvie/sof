@@ -1,0 +1,10 @@
+{
+  "name": "sof-addon-place",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Place publish/version/rollback/info utilities",
+  "dependencies": {
+    "smol-toml": "^1.3.1"
+  }
+}

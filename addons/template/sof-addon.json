@@ -1,0 +1,9 @@
+{
+  "name": "template",
+  "version": "1.0.0",
+  "command": "template",
+  "entry": "src/commands/template.js",
+  "export": "runTemplate",
+  "usage": "template save|use|list|remove",
+  "description": "Save and reuse project templates"
+}

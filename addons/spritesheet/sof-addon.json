@@ -1,0 +1,9 @@
+{
+  "name": "spritesheet",
+  "version": "1.0.0",
+  "command": "spritesheet",
+  "entry": "src/commands/spritesheet.js",
+  "export": "runSpritesheet",
+  "usage": "spritesheet pack <in> [out]",
+  "description": "Pack sprites into atlas PNGs + Luau metadata"
+}

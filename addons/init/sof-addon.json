@@ -1,0 +1,9 @@
+{
+  "name": "init",
+  "version": "1.0.0",
+  "command": "init",
+  "entry": "src/commands/init.js",
+  "export": "runInit",
+  "usage": "init [name]",
+  "description": "Scaffold a Sof-ready project layout"
+}

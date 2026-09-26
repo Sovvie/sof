@@ -1,0 +1,11 @@
+{
+  "name": "sof-addon-editable-mesh-bypasser",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Asset proxy with mesh parsing and image downscaling",
+  "dependencies": {
+    "draco3d": "^1.5.7",
+    "sharp": "^0.33.5"
+  }
+}

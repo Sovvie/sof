@@ -1,0 +1,234 @@
+"use strict";
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const LOCAL_SOF_DIRECTORY = path.join(os.homedir(), ".sof");
+
+const PLACEHOLDER_PATTERNS = [
+  /^your_.*_here$/i,
+  /^<your_.*>$/i,
+  /^placeholder$/i,
+  /^change_me$/i,
+  /^xxx+$/i,
+  /^todo$/i,
+];
+
+function isPlaceholder(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return false;
+  }
+  return PLACEHOLDER_PATTERNS.some((re) => re.test(normalized));
+}
+
+function parseEnvLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) {
+    return null;
+  }
+
+  const separatorIndex = trimmed.indexOf("=");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const key = trimmed.slice(0, separatorIndex).trim();
+  if (!key) {
+    return null;
+  }
+
+  let value = trimmed.slice(separatorIndex + 1).trim();
+  const hasDoubleQuotes = value.startsWith('"') && value.endsWith('"');
+  const hasSingleQuotes = value.startsWith("'") && value.endsWith("'");
+  if ((hasDoubleQuotes || hasSingleQuotes) && value.length >= 2) {
+    value = value.slice(1, -1);
+  }
+
+  return { key, value };
+}
+
+function readEnvFileEntries(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  const content = fs.readFileSync(filePath, "utf8");
+  const lines = content.split(/\r?\n/);
+  const entries = {};
+
+  for (const line of lines) {
+    const parsed = parseEnvLine(line);
+    if (!parsed) {
+      continue;
+    }
+    if (!isPlaceholder(parsed.value)) {
+      entries[parsed.key] = parsed.value;
+    }
+  }
+
+  return entries;
+}
+
+function applyToProcessEnv(entries) {
+  let applied = 0;
+  for (const [key, value] of Object.entries(entries)) {
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+      applied++;
+    }
+  }
+  return applied;
+}
+
+/**
+ * Resolves the env file path for a tool.
+ *
+ *   toolEnvPath("uploader")  =>  ~/.sof/uploader.env
+ *   toolEnvPath("my-tool")   =>  ~/.sof/my-tool.env
+ */
+function toolEnvPath(toolName) {
+  return path.join(LOCAL_SOF_DIRECTORY, `${toolName}.env`);
+}
+
+/**
+ * Load environment variables for a tool into `process.env`.
+ *
+ * Files are read in priority order (first match wins per key):
+ *   1. `~/.sof/<toolName>.env`
+ *   2. Any extra `fallbackPaths` (in order)
+ *
+ * Existing `process.env` values are never overwritten.
+ * Placeholder values (e.g. "your_api_key_here") are ignored.
+ *
+ * Returns a result object so callers can inspect what happened:
+ *   {
+ *     loaded:  true/false (whether the primary env file existed),
+ *     path:    string     (primary env file path, even if it didn't exist),
+ *     entries: { KEY: value, ... } (merged entries from all files, excluding placeholders),
+ *   }
+ */
+function loadToolEnv(toolName, { fallbackPaths = [] } = {}) {
+  const primaryPath = toolEnvPath(toolName);
+  const allPaths = [primaryPath, ...fallbackPaths];
+
+  const merged = {};
+  let primaryLoaded = false;
+
+  for (let i = 0; i < allPaths.length; i++) {
+    const entries = readEnvFileEntries(allPaths[i]);
+    if (!entries) {
+      continue;
+    }
+    if (i === 0) {
+      primaryLoaded = true;
+    }
+    for (const [key, value] of Object.entries(entries)) {
+      if (!(key in merged)) {
+        merged[key] = value;
+      }
+    }
+  }
+
+  applyToProcessEnv(merged);
+
+  return {
+    loaded: primaryLoaded,
+    path: primaryPath,
+    entries: merged,
+  };
+}
+
+/**
+ * Get an env variable's value, or `null` if it is not set / empty.
+ *
+ * This is the recommended way for tools to read env values after
+ * `loadToolEnv()` has been called. Using `null` instead of `undefined`
+ * makes it easy for callers to distinguish "never set" from other states.
+ */
+function getEnv(key) {
+  const value = process.env[key];
+  if (value === undefined || value === "") {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Returns `true` when the env variable exists and is non-empty.
+ */
+function hasEnv(key) {
+  return getEnv(key) !== null;
+}
+
+/**
+ * Get an env variable's value, throwing a descriptive error when missing.
+ *
+ * `label` is an optional human-readable name shown in the error message
+ * (defaults to the key itself).
+ */
+function requireEnv(key, label) {
+  const value = getEnv(key);
+  if (value === null) {
+    const displayName = label || key;
+    throw new Error(
+      `Missing required environment variable: ${displayName} (${key}).\n` +
+        `Set it in your shell, or add it to ~/.sof/<tool>.env`
+    );
+  }
+  return value;
+}
+
+/**
+ * Write a `KEY=value` env file for a tool at `~/.sof/<toolName>.env`.
+ *
+ * `entries` is a plain object of `{ KEY: value }` pairs.
+ * Empty or placeholder values are rejected.
+ *
+ * The file is created with mode 0o600 (owner read/write only).
+ * Returns the written file path.
+ */
+function writeToolEnv(toolName, entries) {
+  if (!entries || typeof entries !== "object" || Object.keys(entries).length === 0) {
+    throw new Error("entries must be a non-empty object of KEY=value pairs.");
+  }
+
+  const lines = [`# Auto-generated by sof (${toolName})`];
+
+  for (const [key, rawValue] of Object.entries(entries)) {
+    const value = String(rawValue || "").trim();
+    if (!value || isPlaceholder(value)) {
+      throw new Error(
+        `Cannot write empty or placeholder value for ${key}.`
+      );
+    }
+    if (/[\r\n]/.test(value)) {
+      throw new Error(`${key} must be a single-line value.`);
+    }
+    lines.push(`${key}=${value}`);
+  }
+
+  lines.push("");
+
+  const envPath = toolEnvPath(toolName);
+  fs.mkdirSync(LOCAL_SOF_DIRECTORY, { recursive: true });
+  fs.writeFileSync(envPath, lines.join("\n"), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+
+  return envPath;
+}
+
+module.exports = {
+  LOCAL_SOF_DIRECTORY,
+  toolEnvPath,
+  loadToolEnv,
+  getEnv,
+  hasEnv,
+  requireEnv,
+  writeToolEnv,
+  isPlaceholder,
+  parseEnvLine,
+};

@@ -1,0 +1,9 @@
+{
+  "name": "atlas",
+  "version": "1.0.0",
+  "command": "atlas",
+  "entry": "src/commands/atlas.js",
+  "export": "runAtlas",
+  "usage": "atlas generate <font> [output]",
+  "description": "Generate GlyphMetrics.luau from a font file"
+}

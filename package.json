@@ -1,0 +1,29 @@
+{
+  "name": "sof",
+  "version": "2.0.0",
+  "description": "Sof CLI: Roblox package manager and Rokit tool setup, with optional add-ons",
+  "license": "MIT",
+  "bin": {
+    "sof": "./bin/sof.js"
+  },
+  "main": "src/cli.js",
+  "files": [
+    "bin",
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "smoke": "node ./bin/sof.js --help",
+    "release": "node ./scripts/release.js"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "fast-glob": "^3.3.3",
+    "semver": "^7.6.3",
+    "smol-toml": "^1.3.1",
+    "tar": "^7.4.3"
+  }
+}

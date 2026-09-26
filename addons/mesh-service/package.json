@@ -1,0 +1,13 @@
+{
+  "name": "sof-addon-mesh-service",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Mesh extraction/reupload HTTP service",
+  "dependencies": {
+    "draco3d": "^1.5.7",
+    "form-data": "^4.0.1",
+    "node-fetch": "^2.7.0",
+    "sharp": "^0.33.5"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "obfuscate",
+  "version": "1.0.0",
+  "command": "obfuscate",
+  "entry": "src/commands/obfuscate.js",
+  "export": "runObfuscate",
+  "usage": "obfuscate <input...> [options]",
+  "description": "Obfuscate Luau files"
+}

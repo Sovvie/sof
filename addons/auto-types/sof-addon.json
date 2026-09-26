@@ -1,0 +1,9 @@
+{
+  "name": "auto-types",
+  "version": "1.0.0",
+  "command": "auto-types",
+  "entry": "src/commands/auto-types.js",
+  "export": "runAutoTypes",
+  "usage": "auto-types [config]",
+  "description": "Compile Luau modules into a type file from TOML config"
+}

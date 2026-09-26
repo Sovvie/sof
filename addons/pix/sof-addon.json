@@ -1,0 +1,9 @@
+{
+  "name": "pix",
+  "version": "1.0.0",
+  "command": "pix",
+  "entry": "src/commands/pix.js",
+  "export": "runPix",
+  "usage": "pix <input> <width> <height> [palette]",
+  "description": "Convert an image into pixel-art"
+}

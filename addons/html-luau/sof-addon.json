@@ -1,0 +1,9 @@
+{
+  "name": "html-luau",
+  "version": "1.0.0",
+  "command": "html-luau",
+  "entry": "src/commands/html-luau.js",
+  "export": "runHtmlLuau",
+  "usage": "html-luau <path> [output]",
+  "description": "Compile HTML file(s) into Luau modules"
+}

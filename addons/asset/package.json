@@ -1,0 +1,10 @@
+{
+  "name": "sof-addon-asset",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Audit/list/replace rbxassetid references",
+  "dependencies": {
+    "fast-glob": "^3.3.3"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "asset",
+  "version": "1.0.0",
+  "command": "asset",
+  "entry": "src/commands/asset.js",
+  "export": "runAsset",
+  "usage": "asset audit|list|replace",
+  "description": "Audit/list/replace rbxassetid references"
+}

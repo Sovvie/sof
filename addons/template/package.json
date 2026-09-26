@@ -1,0 +1,8 @@
+{
+  "name": "sof-addon-template",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Save and reuse project templates",
+  "dependencies": {}
+}

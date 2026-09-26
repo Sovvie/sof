@@ -1,0 +1,9 @@
+{
+  "name": "depgraph",
+  "version": "1.0.0",
+  "command": "depgraph",
+  "entry": "src/commands/depgraph.js",
+  "export": "runDepgraph",
+  "usage": "depgraph package|require",
+  "description": "Build package/require dependency graphs"
+}

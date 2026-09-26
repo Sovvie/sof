@@ -1,0 +1,8 @@
+{
+  "name": "sof-addon-webserver",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Manage local website servers",
+  "dependencies": {}
+}

@@ -1,0 +1,9 @@
+{
+  "name": "editable-mesh-bypasser",
+  "version": "1.0.0",
+  "command": "editable-mesh-bypasser",
+  "entry": "src/commands/editable-mesh-bypasser.js",
+  "export": "runEditableMeshBypasser",
+  "usage": "editable-mesh-bypasser [--port <port>]",
+  "description": "Asset proxy with mesh parsing and image downscaling"
+}

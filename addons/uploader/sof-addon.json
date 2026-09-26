@@ -1,0 +1,9 @@
+{
+  "name": "uploader",
+  "version": "1.0.0",
+  "command": "uploader",
+  "entry": "src/commands/uploader.js",
+  "export": "runUploader",
+  "usage": "uploader images|animations|...",
+  "description": "Upload assets via Roblox APIs"
+}

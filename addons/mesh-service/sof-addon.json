@@ -1,0 +1,9 @@
+{
+  "name": "mesh-service",
+  "version": "1.0.0",
+  "command": "mesh-service",
+  "entry": "src/commands/mesh-service.js",
+  "export": "runMeshService",
+  "usage": "mesh-service [--port <port>]",
+  "description": "Mesh extraction/reupload HTTP service"
+}

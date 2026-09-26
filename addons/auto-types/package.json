@@ -1,0 +1,12 @@
+{
+  "name": "sof-addon-auto-types",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Compile Luau modules into a type file from TOML config",
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "fast-glob": "^3.3.3",
+    "smol-toml": "^1.3.1"
+  }
+}

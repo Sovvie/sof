@@ -1,0 +1,11 @@
+{
+  "name": "sof-addon-docs",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Generate API docs from Luau modules",
+  "dependencies": {
+    "fast-glob": "^3.3.3",
+    "smol-toml": "^1.3.1"
+  }
+}

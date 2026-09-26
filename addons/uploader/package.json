@@ -1,0 +1,14 @@
+{
+  "name": "sof-addon-uploader",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Upload assets via Roblox APIs",
+  "dependencies": {
+    "draco3d": "^1.5.7",
+    "form-data": "^4.0.1",
+    "node-fetch": "^2.7.0",
+    "sharp": "^0.33.5",
+    "ws": "^8.18.3"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "place",
+  "version": "1.0.0",
+  "command": "place",
+  "entry": "src/commands/place.js",
+  "export": "runPlace",
+  "usage": "place publish|versions|...",
+  "description": "Place publish/version/rollback/info utilities"
+}

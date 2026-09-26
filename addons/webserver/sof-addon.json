@@ -1,0 +1,9 @@
+{
+  "name": "webserver",
+  "version": "1.0.0",
+  "command": "webserver",
+  "entry": "src/commands/webserver.js",
+  "export": "runWebserver",
+  "usage": "webserver <path>|start|stop|...",
+  "description": "Manage local website servers"
+}

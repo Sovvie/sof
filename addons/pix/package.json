@@ -1,0 +1,11 @@
+{
+  "name": "sof-addon-pix",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Convert an image into pixel-art",
+  "dependencies": {
+    "jimp": "^1.6.0",
+    "smol-toml": "^1.3.1"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "sof-addon-depgraph",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Build package/require dependency graphs",
+  "dependencies": {
+    "fast-glob": "^3.3.3",
+    "semver": "^7.6.3",
+    "smol-toml": "^1.3.1"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "sof-addon-html-luau",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Compile HTML file(s) into Luau modules",
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "form-data": "^4.0.1",
+    "node-fetch": "^2.7.0",
+    "node-html-parser": "^7.1.0",
+    "sharp": "^0.33.5",
+    "smol-toml": "^1.3.1"
+  }
+}

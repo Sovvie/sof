@@ -1,0 +1,9 @@
+{
+  "name": "video",
+  "version": "1.0.0",
+  "command": "video",
+  "entry": "src/commands/video.js",
+  "export": "runVideo",
+  "usage": "video <file...> [options]",
+  "description": "Build video spritesheets and upload to Roblox"
+}

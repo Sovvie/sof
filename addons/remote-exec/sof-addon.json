@@ -1,0 +1,9 @@
+{
+  "name": "remote-exec",
+  "version": "1.0.0",
+  "command": "remote-exec",
+  "entry": "src/commands/remote-exec.js",
+  "export": "runRemoteExec",
+  "usage": "remote-exec [--port <port>]",
+  "description": "Roblox remote execution WebSocket bridge"
+}

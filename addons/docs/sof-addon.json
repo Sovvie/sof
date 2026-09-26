@@ -1,0 +1,9 @@
+{
+  "name": "docs",
+  "version": "1.0.0",
+  "command": "docs",
+  "entry": "src/commands/docs.js",
+  "export": "runDocs",
+  "usage": "docs [config]",
+  "description": "Generate API docs from Luau modules"
+}
