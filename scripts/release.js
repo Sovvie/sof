@@ -22,4 +22,4 @@ zip.addLocalFile(path.join(root, "package-lock.json"));
 zip.writeZip(output);
 
 console.log(`Built ${path.relative(root, output)}`);
-console.log(`Next: create GitHub release v${version} and upload it, along with install.ps1 and install.sh.`);
+console.log(`Next: npm run publish-release (creates GitHub release v${version} with this zip, install.ps1 and install.sh).`);

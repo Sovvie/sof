@@ -14,7 +14,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node ./bin/sof.js --help",
-    "release": "node ./scripts/release.js"
+    "release": "node ./scripts/release.js",
+    "publish-release": "node ./scripts/publish-release.js"
   },
   "engines": {
     "node": ">=20.19.0"
