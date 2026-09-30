@@ -44,6 +44,7 @@ sof run package search router
 - A package that refers to a dependency by another name (say `DataSyncer` for `sovvie/nexus`) gets its requires pointed at the copy you already have, instead of a second copy.
 - Packages you remove from `sof.toml` are deleted on the next install.
 - Commit `sof.lock`; the installed folder can be gitignored.
+- Installs are incremental. sof remembers what it installed (in `~/.sof/state`, nothing is added to your project) and on the next run only downloads packages that are new, changed version, or missing/edited on disk. When nothing changed it doesn't even contact the index. `sof run package install --force` reinstalls everything.
 
 To publish, describe packages in `packages.sof.toml` (or `sof.toml`) and run `sof run package publish` (needs push access to the index, `sovvie/sof-index`):
 
@@ -73,8 +74,9 @@ selene = "Kampfkarren/selene@0.30.1"
 ```
 
 ```bash
-sof run install                       # packages + tools
-sof run tools install                 # tools only
+sof run install                       # packages + tools; only what is new or changed
+sof run install --force               # reinstall everything
+sof run tools install                 # tools only (skips tools Rokit already has)
 sof run tools add rojo-rbx/rojo       # add the latest release to [tools] and install it
 sof run tools list
 ```

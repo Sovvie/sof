@@ -19,6 +19,15 @@ const { linkInstalledPackages, pruneRemovedPackages, writeRojoMeta } = require("
 const { readLockfile, writeLockfile } = require("../packages/lockfile");
 const { createRegistry } = require("../packages/registry");
 const { resolveDependencyGraph } = require("../packages/resolver");
+const {
+  classifyEntries,
+  createEntryKey,
+  hashConfigGroups,
+  isInstallCurrent,
+  readInstallState,
+  recordInstalled,
+  writeInstallState,
+} = require("../packages/state");
 
 const HELP_TEXT = `
 sof run package - Manage package install/publish workflow
@@ -31,6 +40,7 @@ COMMANDS:
     sof run package install [path/to/sof.toml]
     OPTIONS:
       --frozen                        Error when sof.lock is missing/outdated
+      --force                         Reinstall every package
       -h, --help                      Show install command help
 
   publish
@@ -69,8 +79,13 @@ sof run package install - Install packages from sof.toml
 USAGE:
   sof run package install [path/to/sof.toml]
 
+DESCRIPTION:
+  Only packages that are new, changed or missing/modified on disk are downloaded and
+  copied; when nothing changed since the last install, nothing is touched.
+
 OPTIONS:
   --frozen                        Error when sof.lock is missing/outdated
+  --force                         Reinstall every package, ignoring what is already installed
   -h, --help                      Show this help message
 `;
 
@@ -136,6 +151,7 @@ function parseInstallArgs(argv) {
   const output = {
     configPath: null,
     frozen: false,
+    force: false,
     help: false,
   };
 
@@ -148,6 +164,11 @@ function parseInstallArgs(argv) {
 
     if (arg === "--frozen") {
       output.frozen = true;
+      continue;
+    }
+
+    if (arg === "--force") {
+      output.force = true;
       continue;
     }
 
@@ -760,6 +781,19 @@ async function runInstall(argv) {
     console.log("Running in frozen mode.");
   }
 
+  const installState = readInstallState(config.configDirectory);
+  const configHash = hashConfigGroups(config.groups);
+
+  // Same config, same lockfile and every installed package untouched since the last install:
+  // nothing to resolve, download or copy.
+  if (!args.force && isInstallCurrent(installState, configHash, lockfile, config.configDirectory)) {
+    for (const group of config.groups) {
+      writeRojoMeta(config.configDirectory, group);
+    }
+    console.log(`Packages are up to date (${lockfile.entries.length} installed).`);
+    return;
+  }
+
   const resolved = await resolveDependencyGraph({
     groups: config.groups,
     registry,
@@ -772,36 +806,72 @@ async function runInstall(argv) {
     return;
   }
 
-  console.log(`Resolved ${resolved.entries.length} package(s). Downloading...`);
-  const downloaded = await downloadPackages({
-    entries: resolved.entries,
-    registry,
-  });
+  const { current, stale } = args.force
+    ? {
+        current: [],
+        stale: resolved.entries.map((entry) => ({ entry, reason: "forced" })),
+      }
+    : classifyEntries(resolved.entries, lockfile.entries, installState, config.configDirectory);
 
-  let linked;
-  try {
-    linked = linkInstalledPackages(downloaded.entries, config.configDirectory);
-  } finally {
-    cleanupDownloadedPackages(downloaded.temporaryDirectory);
+  console.log(
+    `Resolved ${resolved.entries.length} package(s): ${stale.length} to install, ${current.length} up to date.`
+  );
+
+  const installedByKey = new Map();
+  for (const { entry, lockEntry, recorded } of current) {
+    installedByKey.set(createEntryKey(entry), {
+      ...entry,
+      checksum: lockEntry.checksum,
+      destinationPath: path.resolve(config.configDirectory, recorded.destination),
+    });
   }
 
-  const removed = pruneRemovedPackages(lockfile.entries, linked.entries, config.configDirectory);
+  const reasons = new Map(stale.map(({ entry, reason }) => [createEntryKey(entry), reason]));
+  if (stale.length > 0) {
+    const downloaded = await downloadPackages({
+      entries: stale.map(({ entry }) => entry),
+      registry,
+    });
+
+    try {
+      const linked = linkInstalledPackages(downloaded.entries, config.configDirectory);
+      for (const entry of linked.entries) {
+        installedByKey.set(createEntryKey(entry), entry);
+      }
+    } finally {
+      cleanupDownloadedPackages(downloaded.temporaryDirectory);
+    }
+  }
+
+  const allEntries = resolved.entries.map((entry) => installedByKey.get(createEntryKey(entry)));
+  const removed = pruneRemovedPackages(lockfile.entries, allEntries, config.configDirectory);
 
   for (const group of config.groups) {
     writeRojoMeta(config.configDirectory, group);
   }
 
-  writeLockfile(lockfilePath, toLockEntries(linked.entries));
+  const written = writeLockfile(lockfilePath, toLockEntries(allEntries));
 
-  console.log(`Installed ${linked.entries.length} package(s):`);
-  for (const entry of linked.entries) {
-    const role = entry.isDirect ? "" : " [dependency]";
-    const rewrites = Object.entries(entry.aliasRewrites || {})
+  const packageRecords = {};
+  for (const entry of allEntries) {
+    packageRecords[createEntryKey(entry)] = recordInstalled(entry, entry.destinationPath, config.configDirectory);
+  }
+  writeInstallState(config.configDirectory, {
+    configHash,
+    lockHash: written.hash,
+    packages: packageRecords,
+  });
+
+  for (const { entry } of stale) {
+    const installed = installedByKey.get(createEntryKey(entry));
+    const role = installed.isDirect ? "" : " [dependency]";
+    const reason = reasons.get(createEntryKey(entry));
+    const rewrites = Object.entries(installed.aliasRewrites || {})
       .map(([from, to]) => `${from}->${to}`)
       .join(", ");
     console.log(
-      `  ✓ ${entry.alias} -> ${displayPath(entry.destinationPath)} ` +
-        `(${entry.name}@${entry.version} via ${entry.source})${role}` +
+      `  ✓ ${installed.alias} -> ${displayPath(installed.destinationPath)} ` +
+        `(${installed.name}@${installed.version} via ${installed.source})${role} [${reason}]` +
         (rewrites ? ` requires rewritten: ${rewrites}` : "")
     );
   }
@@ -810,7 +880,9 @@ async function runInstall(argv) {
     console.log(`  - removed ${entry.alias} (${entry.name}@${entry.version})`);
   }
 
-  console.log(`Wrote lockfile: ${displayPath(lockfilePath)}`);
+  if (stale.length === 0 && removed.length === 0) {
+    console.log("Packages are up to date.");
+  }
 }
 
 async function runPublish(argv) {

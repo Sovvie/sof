@@ -5,6 +5,7 @@ const os = require("os");
 const path = require("path");
 
 const { ensureRokit } = require("../rokit/bootstrap");
+const { findMissingTools } = require("../rokit/installed");
 const { runRokit } = require("../rokit/executor");
 const { addToolToConfig, prepareRokitManifest } = require("../rokit/manifest");
 const { scaffoldToolConfigs } = require("../rokit/tool-configs");
@@ -57,7 +58,11 @@ sof run tools install - Install tools from [tools] in sof.toml
 USAGE:
   sof run tools install [path/to/sof.toml]
 
+DESCRIPTION:
+  Only tools that Rokit doesn't have yet (new entries or changed versions) are installed.
+
 OPTIONS:
+  --force                         Run rokit install even when every tool is already present
   -h, --help                      Show this help message
 `;
 
@@ -119,6 +124,7 @@ function createGithubHeaders() {
 function parseConfigArgs(argv, commandName) {
   const output = {
     configPath: null,
+    force: false,
     help: false,
   };
 
@@ -126,6 +132,11 @@ function parseConfigArgs(argv, commandName) {
   for (const arg of argv) {
     if (arg === "-h" || arg === "--help") {
       output.help = true;
+      continue;
+    }
+
+    if (arg === "--force" && commandName === "install") {
+      output.force = true;
       continue;
     }
 
@@ -331,16 +342,9 @@ function printScaffoldSummary(scaffoldResult) {
       console.log(`  ✓ ${fileName}`);
     }
   }
-
-  if (scaffoldResult.skippedExisting.length > 0) {
-    console.log("Skipped existing tool config file(s):");
-    for (const fileName of scaffoldResult.skippedExisting) {
-      console.log(`  - ${fileName}`);
-    }
-  }
 }
 
-async function runToolsInstall(configPathArg) {
+async function runToolsInstall(configPathArg, options = {}) {
   const manifest = prepareRokitManifest(configPathArg);
   const toolAliases = Object.keys(manifest.tools);
 
@@ -358,11 +362,22 @@ async function runToolsInstall(configPathArg) {
     };
   }
 
-  console.log(`Generated internal manifest: ${displayPath(manifest.rokitManifestPath)}`);
+  if (manifest.manifestChanged) {
+    console.log(`Generated internal manifest: ${displayPath(manifest.rokitManifestPath)}`);
+  }
 
   const setupResult = await ensureRokitSetup(manifest.configDirectory);
 
-  await runRokitCommand(["install", "--no-trust-check"], manifest.configDirectory, "install");
+  const toInstall = options.force
+    ? Object.entries(manifest.tools).map(([alias, specifier]) => ({ alias, specifier }))
+    : findMissingTools(manifest.tools);
+
+  if (toInstall.length === 0) {
+    console.log(`Tools are up to date (${toolAliases.length} installed).`);
+  } else {
+    console.log(`Installing ${toInstall.length} tool(s): ${toInstall.map((tool) => tool.specifier).join(", ")}`);
+    await runRokitCommand(["install", "--no-trust-check"], manifest.configDirectory, "install");
+  }
 
   const scaffoldResult = scaffoldToolConfigs(manifest.configDirectory, toolAliases);
   printScaffoldSummary(scaffoldResult);
@@ -383,7 +398,7 @@ async function runInstall(argv) {
     process.exit(0);
   }
 
-  await runToolsInstall(args.configPath);
+  await runToolsInstall(args.configPath, { force: args.force });
 }
 
 async function runList(argv) {

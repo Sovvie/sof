@@ -169,7 +169,10 @@ function writeRojoMeta(configDirectory, group) {
     }
 
     if (metaPath) {
-      fs.writeFileSync(metaPath, `${JSON.stringify({ ignoreUnknownInstances: true }, null, 2)}\n`);
+      const metaText = `${JSON.stringify({ ignoreUnknownInstances: true }, null, 2)}\n`;
+      if (!fs.existsSync(metaPath) || fs.readFileSync(metaPath, "utf8") !== metaText) {
+        fs.writeFileSync(metaPath, metaText);
+      }
       written.push(metaPath);
     }
   }

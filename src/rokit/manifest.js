@@ -171,8 +171,13 @@ function writeRokitManifest(projectDir, tools) {
     "",
   ];
 
-  fs.writeFileSync(manifestPath, lines.join("\n"), "utf8");
-  return manifestPath;
+  // Only rewritten when the tools changed, so editors and file watchers see no churn.
+  const text = lines.join("\n");
+  const changed = !fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, "utf8") !== text;
+  if (changed) {
+    fs.writeFileSync(manifestPath, text, "utf8");
+  }
+  return { manifestPath, changed };
 }
 
 function addToolToConfig(configPathArg, aliasRaw, specifierRaw) {
@@ -198,12 +203,13 @@ function addToolToConfig(configPathArg, aliasRaw, specifierRaw) {
 
 function prepareRokitManifest(configPathArg) {
   const config = readToolsFromConfig(configPathArg);
-  const rokitManifestPath = writeRokitManifest(config.configDirectory, config.tools);
+  const written = writeRokitManifest(config.configDirectory, config.tools);
   return {
     configPath: config.configPath,
     configDirectory: config.configDirectory,
     tools: config.tools,
-    rokitManifestPath,
+    rokitManifestPath: written.manifestPath,
+    manifestChanged: written.changed,
   };
 }
 

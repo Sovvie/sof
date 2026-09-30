@@ -11,15 +11,18 @@ USAGE:
   sof run install [path/to/sof.toml]
 
 DESCRIPTION:
-  Runs package install first, then tools install.
+  Runs package install first, then tools install. Only what is new, changed or missing since
+  the last run is downloaded or installed.
 
 OPTIONS:
+  --force                         Reinstall every package and re-run the tool install
   -h, --help                      Show this help message
 `;
 
 function parseArgs(argv) {
   const output = {
     configPath: null,
+    force: false,
     help: false,
   };
 
@@ -27,6 +30,11 @@ function parseArgs(argv) {
   for (const arg of argv) {
     if (arg === "-h" || arg === "--help") {
       output.help = true;
+      continue;
+    }
+
+    if (arg === "--force") {
+      output.force = true;
       continue;
     }
 
@@ -52,7 +60,7 @@ async function runInstall(argv) {
     process.exit(0);
   }
 
-  const packageArgs = args.configPath ? [args.configPath] : [];
+  const packageArgs = [...(args.force ? ["--force"] : []), ...(args.configPath ? [args.configPath] : [])];
   try {
     await runPackageInstall(packageArgs);
   } catch (err) {
@@ -63,7 +71,7 @@ async function runInstall(argv) {
     }
   }
 
-  await runToolsInstall(args.configPath);
+  await runToolsInstall(args.configPath, { force: args.force });
 }
 
 module.exports = {

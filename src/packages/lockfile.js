@@ -1,7 +1,12 @@
 "use strict";
 
 const fs = require("fs");
+const crypto = require("crypto");
 const toml = require("smol-toml");
+
+function hashText(text) {
+  return `sha256:${crypto.createHash("sha256").update(text).digest("hex")}`;
+}
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -38,9 +43,11 @@ function readLockfile(lockfilePath) {
   }
 
   const text = fs.readFileSync(lockfilePath, "utf8");
+  const hash = hashText(text);
   if (!text.trim()) {
     return {
       exists: true,
+      hash,
       entries: [],
     };
   }
@@ -56,6 +63,7 @@ function readLockfile(lockfilePath) {
   if (rawEntries === undefined) {
     return {
       exists: true,
+      hash,
       entries: [],
     };
   }
@@ -66,6 +74,7 @@ function readLockfile(lockfilePath) {
 
   return {
     exists: true,
+    hash,
     entries: rawEntries.map((entry, index) => normalizeLockEntry(entry, index + 1)),
   };
 }
@@ -101,7 +110,13 @@ function writeLockfile(lockfilePath, entries) {
     lines.push("");
   }
 
-  fs.writeFileSync(lockfilePath, `${lines.join("\n")}\n`, "utf8");
+  // Left untouched when nothing changed, so file watchers don't fire on a no-op install.
+  const text = `${lines.join("\n")}\n`;
+  if (!fs.existsSync(lockfilePath) || fs.readFileSync(lockfilePath, "utf8") !== text) {
+    fs.writeFileSync(lockfilePath, text, "utf8");
+  }
+
+  return { hash: hashText(text) };
 }
 
 module.exports = {
