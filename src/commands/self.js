@@ -44,6 +44,9 @@ function writeShims(cliDirectory) {
 
   const entry = path.join(cliDirectory, "bin", "sof.js");
   fs.writeFileSync(path.join(binDirectory, "sof.cmd"), `@echo off\r\nnode "${entry}" %*\r\n`);
+  // PowerShell prefers sof.ps1 over sof.cmd, so leaving it pointing at the old version made
+  // every update look like it hadn't happened.
+  fs.writeFileSync(path.join(binDirectory, "sof.ps1"), `node "${entry}" @args\r\n`);
   fs.writeFileSync(path.join(binDirectory, "sof"), `#!/bin/sh\nexec node "${entry}" "$@"\n`, { mode: 0o755 });
 }
 
