@@ -17,7 +17,10 @@ COMMANDS:
   run package publish [config]                    Publish package(s) from sof.toml
   run package check [config]                      Validate package require alias integrity
   run package outdated [config]                   Show available package updates
-  run package search <query>                      Search package indexes
+  run package search <query>                      Search the registry and Wally
+  run package login|logout|whoami                 Sign in to the registry (needed to publish)
+  run package owner add|remove <scope> <user>     Manage who may publish to a scope
+  run package yank|unyank <scope/name> <version>  Hide a version from new installs
   run tools install|list|add|setup|self-update    Tools (rojo, selene, ...) via sof's built-in Rokit
   run addon list|add|remove|update|publish        Optional features (docs, video, uploader, ...)
   run self update                                 Update sof itself

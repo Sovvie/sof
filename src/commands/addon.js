@@ -8,8 +8,11 @@ const path = require("path");
 const semver = require("semver");
 const tar = require("tar");
 
+const { requireToken } = require("../packages/auth");
 const { createRegistry } = require("../packages/registry");
-const { SOF_INDEX_BRANCH, SOF_INDEX_REPO } = require("../packages/constants");
+const { heldForReviewLines } = require("../packages/providers/sof");
+const { isYanked } = require("../packages/resolver");
+const { failWithProblems, validateArchive, validatePackageMetadata } = require("../packages/validate");
 const {
   ADDON_SCOPE,
   addonsRoot,
@@ -30,7 +33,7 @@ COMMANDS:
   add --path <folder>      Install an add-on from a local folder (for developing one)
   remove <name>            Uninstall an add-on
   update [name]            Update one add-on, or all of them
-  publish <folder>         Publish an add-on folder to the sof index
+  publish <folder>         Publish an add-on folder to the sof registry (needs "sof run package login")
 
 Installed add-ons run like built-in commands: sof run <command> ...
 They live in ~/.sof/addons (override with SOF_HOME).
@@ -94,15 +97,16 @@ async function addFromIndex(spec) {
   const name = at > 0 ? spec.slice(0, at) : spec;
   const range = at > 0 ? spec.slice(at + 1) : "*";
 
-  const registry = createRegistry({ token: process.env.SOF_TOKEN || "" });
+  const registry = createRegistry();
   const packageName = `${ADDON_SCOPE}/${name}`;
   const entry = await registry.queryPackage(packageName, { preferredSource: "sof", allowFallback: false });
   if (!entry) {
     throw new Error(`No add-on named "${name}". Run "sof run addon list" to see what's available.`);
   }
 
+  // Yanked versions are never picked for a fresh install.
   const version = semver.maxSatisfying(
-    entry.versions.map((candidate) => candidate.version),
+    entry.versions.filter((candidate) => !isYanked(candidate)).map((candidate) => candidate.version),
     range,
     { includePrerelease: true }
   );
@@ -149,19 +153,12 @@ function addFromPath(folder) {
 }
 
 async function fetchAvailable() {
-  const url = `https://api.github.com/repos/${SOF_INDEX_REPO}/git/trees/${SOF_INDEX_BRANCH}?recursive=1`;
-  const response = await fetch(url, { headers: { "User-Agent": "sof-cli" } });
-  if (!response.ok) {
+  try {
+    const packages = await createRegistry().searchPackages({ scope: ADDON_SCOPE });
+    return packages.map((entry) => String(entry.name).split("/").pop()).sort();
+  } catch (_err) {
     return null;
   }
-
-  const tree = (await response.json()).tree || [];
-  const pattern = new RegExp(`^index/${ADDON_SCOPE}/([^/]+)\\.json$`);
-  return tree
-    .map((entry) => pattern.exec(entry.path))
-    .filter(Boolean)
-    .map((match) => match[1])
-    .sort();
 }
 
 async function list() {
@@ -179,7 +176,7 @@ async function list() {
 
   const available = await fetchAvailable();
   if (available === null) {
-    console.log("\nCouldn't reach the sof index to list available add-ons.");
+    console.log("\nCouldn't reach the sof registry to list available add-ons.");
     return;
   }
 
@@ -225,6 +222,7 @@ async function update(name) {
 async function publish(folder) {
   const directory = path.resolve(folder);
   const descriptor = readAddonDescriptor(directory);
+  requireToken();
   const packageJsonPath = path.join(directory, "package.json");
   const packageJson = fs.existsSync(packageJsonPath) ? JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) : {};
 
@@ -236,21 +234,35 @@ async function publish(folder) {
     await tar.c({ file: archive, gzip: true, cwd: directory, portable: true }, entries);
 
     const checksum = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(archive)).digest("hex")}`;
-    const registry = createRegistry({ token: process.env.SOF_TOKEN || "" });
+    const registry = createRegistry();
 
-    const result = await registry.publishPackage(
-      {
-        name: `${ADDON_SCOPE}/${descriptor.name}`,
-        version: descriptor.version,
-        description: descriptor.description || packageJson.description || "",
-        license: packageJson.license || "",
-        realm: "addon",
-        authors: Array.isArray(packageJson.authors) ? packageJson.authors : [],
-        dependencies: [],
-      },
-      archive,
-      checksum
-    );
+    const packageEntry = {
+      name: `${ADDON_SCOPE}/${descriptor.name}`,
+      version: descriptor.version,
+      description: descriptor.description || packageJson.description || "",
+      license: packageJson.license || "",
+      realm: "addon",
+      authors: Array.isArray(packageJson.authors) ? packageJson.authors : [],
+      dependencies: [],
+    };
+
+    const problems = [
+      ...validatePackageMetadata(packageEntry),
+      ...(await validateArchive(archive, packageEntry)),
+    ];
+    if (problems.length > 0) {
+      throw failWithProblems(`${packageEntry.name}@${packageEntry.version}`, problems);
+    }
+
+    const result = await registry.publishPackage(packageEntry, archive, checksum);
+    if (result.state === "quarantined") {
+      const [headline, ...details] = heldForReviewLines(result);
+      console.log(`! add-on ${headline}`);
+      for (const line of details) {
+        console.log(`  ${line}`);
+      }
+      return;
+    }
 
     console.log(`✓ published add-on ${descriptor.name}@${result.version} (${result.indexPath})`);
   } finally {

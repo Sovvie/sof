@@ -13,7 +13,8 @@ const { rewriteSource, pruneRemovedPackages } = require("../src/packages/linker"
 const PATH = "src/ReplicatedStorage/Packages";
 
 // packages: { "scope/name": { "1.0.0": { Alias: "scope/dep@^1.0.0" } } }
-function fakeRegistry(packages) {
+// yanked: { "scope/name": ["1.0.0"] }
+function fakeRegistry(packages, yanked = {}) {
   const queries = [];
   return {
     queries,
@@ -28,7 +29,7 @@ function fakeRegistry(packages) {
         packageName: name,
         versions: Object.entries(versions).map(([version, dependencies]) => ({
           version,
-          metadata: {},
+          metadata: (yanked[name] || []).includes(version) ? { yanked: true } : {},
           dependencies,
         })),
       };
@@ -162,6 +163,79 @@ test("a locked version is kept while it still satisfies every range", async () =
   });
 
   assert.equal(entries[0].version, "2.0.0");
+});
+
+test("a yanked version is skipped on fresh resolution", async () => {
+  const registry = fakeRegistry(
+    { "sovvie/stream": { "2.0.0": {}, "2.1.0": {} } },
+    { "sovvie/stream": ["2.1.0"] }
+  );
+
+  const { entries } = await resolveDependencyGraph({
+    groups: group({ Stream: "sovvie/stream@^2.0.0" }),
+    registry,
+  });
+
+  assert.equal(entries[0].version, "2.0.0");
+});
+
+test("a yanked version is skipped when a lockfile pins a different version", async () => {
+  const registry = fakeRegistry(
+    { "sovvie/stream": { "2.0.0": {}, "2.1.0": {}, "2.2.0": {} } },
+    { "sovvie/stream": ["2.2.0"] }
+  );
+
+  const { entries } = await resolveDependencyGraph({
+    groups: group({ Stream: "sovvie/stream@^2.0.0" }),
+    registry,
+    lockEntries: [{ name: "sovvie/stream", alias: "Stream", version: "2.0.0", source: "sof", path: PATH }],
+  });
+
+  assert.equal(entries[0].version, "2.0.0");
+});
+
+test("a yanked version is still honoured when the lockfile pins it", async () => {
+  const registry = fakeRegistry(
+    { "sovvie/stream": { "2.0.0": {}, "2.1.0": {} } },
+    { "sovvie/stream": ["2.1.0"] }
+  );
+  const lockEntries = [{ name: "sovvie/stream", alias: "Stream", version: "2.1.0", source: "sof", path: PATH }];
+
+  for (const frozen of [false, true]) {
+    const { entries } = await resolveDependencyGraph({
+      groups: group({ Stream: "sovvie/stream@^2.0.0" }),
+      registry,
+      lockEntries,
+      frozen,
+    });
+    assert.equal(entries[0].version, "2.1.0", `frozen=${frozen}`);
+  }
+});
+
+test("when every matching version is yanked, the error says so", async () => {
+  const registry = fakeRegistry({ "sovvie/stream": { "2.0.0": {} } }, { "sovvie/stream": ["2.0.0"] });
+
+  await assert.rejects(
+    resolveDependencyGraph({ groups: group({ Stream: "sovvie/stream@^2.0.0" }), registry }),
+    /No version of sovvie\/stream satisfies[\s\S]*yanked and therefore skipped: 2\.0\.0/
+  );
+});
+
+test("a yanked version of a dependency is skipped too", async () => {
+  const registry = fakeRegistry(
+    {
+      "sovvie/router": { "1.0.0": { Stream: "sovvie/stream@^2.0.0" } },
+      "sovvie/stream": { "2.0.0": {}, "2.1.0": {} },
+    },
+    { "sovvie/stream": ["2.1.0"] }
+  );
+
+  const { entries } = await resolveDependencyGraph({
+    groups: group({ Router: "sovvie/router@^1.0.0" }),
+    registry,
+  });
+
+  assert.equal(byName(entries)["sovvie/stream"].version, "2.0.0");
 });
 
 test("frozen mode refuses packages missing from the lockfile", async () => {

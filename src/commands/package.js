@@ -7,18 +7,19 @@ const path = require("path");
 const semver = require("semver");
 const fg = require("fast-glob");
 const tar = require("tar");
+const { requireToken } = require("../packages/auth");
 const { readPackageInstallConfig, readPackagePublishConfig } = require("../packages/config");
 const {
-  SOF_INDEX_BRANCH,
-  SOF_INDEX_REPO,
+  SOF_REGISTRY_URL,
   WALLY_INDEX_BRANCH,
   WALLY_INDEX_REPO,
 } = require("../packages/constants");
 const { downloadPackages, cleanupDownloadedPackages } = require("../packages/downloader");
 const { linkInstalledPackages, pruneRemovedPackages, writeRojoMeta } = require("../packages/linker");
 const { readLockfile, writeLockfile } = require("../packages/lockfile");
+const { heldForReviewLines } = require("../packages/providers/sof");
 const { createRegistry } = require("../packages/registry");
-const { resolveDependencyGraph } = require("../packages/resolver");
+const { isYanked, resolveDependencyGraph } = require("../packages/resolver");
 const {
   classifyEntries,
   createEntryKey,
@@ -28,6 +29,12 @@ const {
   recordInstalled,
   writeInstallState,
 } = require("../packages/state");
+const {
+  failWithProblems,
+  validateArchive,
+  validatePackageMetadata,
+} = require("../packages/validate");
+const { ACCOUNT_COMMANDS, ACCOUNT_HELP_TEXT, runAccountCommand } = require("./registry-account");
 
 const HELP_TEXT = `
 sof run package - Manage package install/publish workflow
@@ -71,6 +78,12 @@ COMMANDS:
       --info <scope/name>             Show detailed package info
       --json                          Output JSON
       -h, --help                      Show search command help
+
+${ACCOUNT_HELP_TEXT}
+
+ENVIRONMENT:
+  SOF_REGISTRY_URL                    Registry to use (default: https://sov.gg/sof-index)
+  SOF_REGISTRY_TOKEN                  Registry token for CI (instead of "package login")
 `;
 
 const INSTALL_HELP_TEXT = `
@@ -90,14 +103,20 @@ OPTIONS:
 `;
 
 const PUBLISH_HELP_TEXT = `
-sof run package publish - Publish package(s) to the Sof index
+sof run package publish - Publish package(s) to the Sof registry
 
 USAGE:
   sof run package publish [path/to/sof.toml]
 
+DESCRIPTION:
+  Needs a sign-in: run "sof run package login" once, or set SOF_REGISTRY_TOKEN in CI.
+  Versions are immutable; bump "version" to publish again. Packages are checked locally against
+  the registry's rules first. An upload the registry holds for review is reported as such and
+  goes live once a registry admin approves it.
+
 OPTIONS:
   --name <scope/name>             Publish only one package entry
-  --skip-existing                 Skip packages whose version is already in the index
+  --skip-existing                 Skip packages whose version is already in the registry
   -h, --help                      Show this help message
 `;
 
@@ -126,7 +145,7 @@ OPTIONS:
 `;
 
 const SEARCH_HELP_TEXT = `
-sof run package search - Search Sof/Wally package indexes
+sof run package search - Search the Sof registry and the Wally index
 
 USAGE:
   sof run package search <query> [options]
@@ -722,21 +741,6 @@ async function fetchGithubTree(repository, branch) {
   return parsed.tree;
 }
 
-function extractSofPackageNames(tree) {
-  const names = new Set();
-  for (const entry of tree) {
-    if (entry.type !== "blob" || typeof entry.path !== "string") {
-      continue;
-    }
-    const match = /^index\/([^/]+)\/([^/]+)\.json$/.exec(entry.path);
-    if (!match) {
-      continue;
-    }
-    names.add(`${match[1]}/${match[2]}`);
-  }
-  return Array.from(names);
-}
-
 function extractWallyPackageNames(tree) {
   const names = new Set();
   for (const entry of tree) {
@@ -772,9 +776,7 @@ async function runInstall(argv) {
   const config = readPackageInstallConfig(args.configPath);
   const lockfilePath = path.join(config.configDirectory, "sof.lock");
   const lockfile = readLockfile(lockfilePath);
-  const registry = createRegistry({
-    token: process.env.SOF_TOKEN || "",
-  });
+  const registry = createRegistry();
 
   console.log(`Using config: ${displayPath(config.configPath)}`);
   if (args.frozen) {
@@ -894,9 +896,7 @@ async function runPublish(argv) {
 
   const resolvedPublishConfig = resolvePublishConfig(args.configPath);
   const config = resolvedPublishConfig.config;
-  const registry = createRegistry({
-    token: process.env.SOF_TOKEN || "",
-  });
+  const registry = createRegistry();
 
   if (resolvedPublishConfig.fallbackNotice) {
     console.log(resolvedPublishConfig.fallbackNotice);
@@ -910,6 +910,9 @@ async function runPublish(argv) {
       throw new Error(`No [[package]] entry matched --name ${args.packageName}.`);
     }
   }
+
+  // Nothing is packed or uploaded for someone who isn't signed in.
+  requireToken();
 
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "sof-publish-"));
   try {
@@ -934,10 +937,27 @@ async function runPublish(argv) {
       );
       const checksum = createChecksumForFile(archivePath);
 
+      const problems = [
+        ...validatePackageMetadata(packageEntry),
+        ...(await validateArchive(archivePath, packageEntry)),
+      ];
+      if (problems.length > 0) {
+        throw failWithProblems(`${packageEntry.name}@${packageEntry.version}`, problems);
+      }
+
       const result = await registry.publishPackage(packageEntry, archivePath, checksum);
+      if (result.state === "quarantined") {
+        const [headline, ...details] = heldForReviewLines(result);
+        console.log(`  ! ${headline}`);
+        for (const line of details) {
+          console.log(`    ${line}`);
+        }
+        continue;
+      }
+
       console.log(`  ✓ ${result.packageName}@${result.version}`);
-      console.log(`    - index: ${result.indexPath}`);
-      console.log(`    - artifact: ${result.artifactPath}`);
+      console.log(`    - index: ${SOF_REGISTRY_URL}/${result.indexPath}`);
+      console.log(`    - artifact: ${SOF_REGISTRY_URL}/${result.artifactPath}`);
     }
   } finally {
     fs.rmSync(temporaryDirectory, {
@@ -1074,9 +1094,7 @@ async function runOutdated(argv) {
   const config = readPackageInstallConfig(args.configPath);
   const lockfilePath = path.join(config.configDirectory, "sof.lock");
   const lockfile = readLockfile(lockfilePath);
-  const registry = createRegistry({
-    token: process.env.SOF_TOKEN || "",
-  });
+  const registry = createRegistry();
 
   console.log(`Using config: ${displayPath(config.configPath)}`);
   console.log(`Using lockfile: ${displayPath(lockfilePath)}${lockfile.exists ? "" : " (missing)"}`);
@@ -1121,12 +1139,17 @@ async function runOutdated(argv) {
         continue;
       }
 
-      const versions = sortVersionsDescending(packageEntry.versions.map((entry) => entry.version));
+      // A yanked version is never offered as an update (only kept when it is what's installed).
+      const current = lockEntry ? lockEntry.version : "-";
+      const versions = sortVersionsDescending(
+        packageEntry.versions
+          .filter((entry) => !isYanked(entry) || entry.version === current)
+          .map((entry) => entry.version)
+      );
       const latest = versions[0] || "-";
       const wanted = semver.maxSatisfying(versions, dependency.range, {
         includePrerelease: true,
       }) || "-";
-      const current = lockEntry ? lockEntry.version : "-";
 
       let status = "up-to-date";
       if (current === "-") {
@@ -1180,9 +1203,7 @@ async function runSearch(argv) {
     process.exit(args.help ? 0 : 1);
   }
 
-  const registry = createRegistry({
-    token: process.env.SOF_TOKEN || "",
-  });
+  const registry = createRegistry();
 
   if (args.infoPackage) {
     const result = await registry.queryPackage(args.infoPackage, {
@@ -1194,13 +1215,19 @@ async function runSearch(argv) {
       throw new Error(`Package "${args.infoPackage}" was not found.`);
     }
 
-    const versions = sortVersionsDescending(result.versions.map((entry) => entry.version));
+    const versions = sortVersionsDescending(
+      result.versions.filter((entry) => !isYanked(entry)).map((entry) => entry.version)
+    );
+    const yankedVersions = sortVersionsDescending(
+      result.versions.filter((entry) => isYanked(entry)).map((entry) => entry.version)
+    );
     const latestVersion = versions[0] || "-";
     const latestMetadata = result.versions.find((entry) => entry.version === latestVersion) || {};
     const payload = {
       package: args.infoPackage,
       source: result.source,
       versions,
+      yankedVersions,
       latestVersion,
       latestMetadata: latestMetadata.metadata || {},
       dependencies: latestMetadata.dependencies || {},
@@ -1215,6 +1242,9 @@ async function runSearch(argv) {
     console.log(`Source: ${payload.source}`);
     console.log(`Latest: ${payload.latestVersion}`);
     console.log(`Versions: ${payload.versions.join(", ")}`);
+    if (payload.yankedVersions.length > 0) {
+      console.log(`Yanked: ${payload.yankedVersions.join(", ")}`);
+    }
     const dependencies = Object.entries(payload.dependencies);
     if (dependencies.length === 0) {
       console.log("Dependencies: (none)");
@@ -1232,14 +1262,14 @@ async function runSearch(argv) {
   const results = [];
 
   if (searchSources.includes("sof")) {
-    const tree = await fetchGithubTree(SOF_INDEX_REPO, SOF_INDEX_BRANCH);
-    for (const packageName of extractSofPackageNames(tree)) {
-      if (packageName.toLowerCase().includes(queryLower)) {
-        results.push({
-          package: packageName,
-          source: "sof",
-        });
-      }
+    // The registry searches and returns latest/description itself, so these need no enrichment.
+    for (const found of await registry.searchPackages({ query: args.query })) {
+      results.push({
+        package: found.name,
+        source: "sof",
+        latest: found.latest || "-",
+        description: found.description || "",
+      });
     }
   }
 
@@ -1263,6 +1293,11 @@ async function runSearch(argv) {
 
   const enriched = [];
   for (const entry of deduped) {
+    if (entry.source === "sof") {
+      enriched.push(entry);
+      continue;
+    }
+
     let latest = "-";
     let description = "";
     try {
@@ -1342,6 +1377,11 @@ async function runPackage(argv) {
 
   if (command === "search") {
     await runSearch(rest);
+    return;
+  }
+
+  if (ACCOUNT_COMMANDS.includes(command)) {
+    await runAccountCommand(command, rest);
     return;
   }
 

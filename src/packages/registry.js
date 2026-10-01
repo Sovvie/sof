@@ -6,7 +6,7 @@ const { WallyProvider } = require("./providers/wally");
 function createRegistry(options = {}) {
   const sofProvider = new SofProvider({
     token: options.token,
-    repository: options.sofRepository,
+    registryUrl: options.registryUrl,
   });
   const wallyProvider = new WallyProvider();
 
@@ -71,10 +71,16 @@ function createRegistry(options = {}) {
     return sofProvider.publishPackage(packageEntry, archivePath, checksum);
   }
 
+  // Listing/search is a feature of the sof registry; Wally is searched through its index tree.
+  async function searchPackages(searchOptions) {
+    return sofProvider.searchPackages(searchOptions);
+  }
+
   return {
     queryPackage,
     downloadPackage,
     publishPackage,
+    searchPackages,
   };
 }
 

@@ -2,6 +2,7 @@
 
 const {
   WALLY_API_URL,
+  WALLY_CLIENT_VERSION,
   WALLY_INDEX_BRANCH,
   WALLY_INDEX_REPO,
 } = require("../constants");
@@ -118,7 +119,7 @@ class WallyProvider {
     const { scope, name } = splitPackageName(packageName);
     const url = `${this.apiBaseUrl}/v1/package-contents/${scope}/${name}/${version}`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: { "Wally-Version": WALLY_CLIENT_VERSION } });
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to download Wally package (${response.status}): ${errorText}`);

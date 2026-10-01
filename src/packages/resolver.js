@@ -23,6 +23,10 @@ function parseTransitiveDependencies(parentLabel, dependencyMap) {
   return output;
 }
 
+function isYanked(entry) {
+  return Boolean(entry && entry.metadata && entry.metadata.yanked === true);
+}
+
 function satisfiesAll(version, demands) {
   return demands.every((demand) =>
     semver.satisfies(version, demand.range, { includePrerelease: true })
@@ -136,8 +140,12 @@ async function resolveDependencyGraph(params) {
         throw new Error(`Package ${bucket.name} was not found in any index.`);
       }
 
-      const available = packageEntry.versions.filter((entry) =>
-        satisfiesAll(entry.version, bucket.demands)
+      // A yanked version stays downloadable so existing lockfiles keep working, but fresh
+      // resolution never picks it: only the exact version a lockfile pins may stay.
+      const isUsable = (entry) =>
+        !isYanked(entry) || Boolean(lockEntry && lockEntry.version === entry.version);
+      const available = packageEntry.versions.filter(
+        (entry) => isUsable(entry) && satisfiesAll(entry.version, bucket.demands)
       );
 
       let chosen = null;
@@ -159,9 +167,17 @@ async function resolveDependencyGraph(params) {
         chosen = available.find((entry) => entry.version === best) || null;
       }
       if (!chosen) {
+        const yankedMatches = packageEntry.versions.filter(
+          (entry) => isYanked(entry) && satisfiesAll(entry.version, bucket.demands)
+        );
+        const yankedNote =
+          yankedMatches.length > 0
+            ? `\n(yanked and therefore skipped: ${yankedMatches.map((entry) => entry.version).join(", ")})`
+            : "";
         throw new Error(
           `No version of ${bucket.name} satisfies every requirement at "${bucket.path}":\n` +
-            describeDemands(bucket.demands)
+            describeDemands(bucket.demands) +
+            yankedNote
         );
       }
 
@@ -255,5 +271,6 @@ async function resolveDependencyGraph(params) {
 }
 
 module.exports = {
+  isYanked,
   resolveDependencyGraph,
 };

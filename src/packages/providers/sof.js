@@ -1,13 +1,14 @@
 "use strict";
 
-const childProcess = require("child_process");
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
-const {
-  SOF_INDEX_BRANCH,
-  SOF_INDEX_REPO,
-} = require("../constants");
+const { SOF_REGISTRY_URL } = require("../constants");
+const { NOT_SIGNED_IN, findToken } = require("../auth");
+
+const SEARCH_PAGE_SIZE = 100;
+const SEGMENT_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+const ARTIFACT_PATH_PATTERN =
+  /^packages\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._+-]+\.tar\.gz$/;
 
 function splitPackageName(packageName) {
   if (typeof packageName !== "string") {
@@ -33,70 +34,107 @@ function dependenciesArrayToObject(dependencies) {
   return output;
 }
 
-function runGitCommand(args, options = {}) {
+// An artifact path comes out of an index file, so it is checked before it becomes a URL:
+// the registry's own layout only, and no "." / ".." segments.
+function isSafeArtifactPath(artifactPath) {
+  return (
+    typeof artifactPath === "string" &&
+    ARTIFACT_PATH_PATTERN.test(artifactPath) &&
+    !artifactPath.split("/").some((segment) => segment === "." || segment === "..")
+  );
+}
+
+// The server's {error:"..."} message, verbatim; the raw body (trimmed) when it isn't JSON.
+async function readErrorMessage(response) {
+  let text = "";
   try {
-    const stdout = childProcess.execFileSync("git", args, {
-      cwd: options.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
-    });
-    return (stdout || "").trim();
-  } catch (err) {
-    const stdout = err.stdout ? String(err.stdout).trim() : "";
-    const stderr = err.stderr ? String(err.stderr).trim() : "";
-    const details = stderr || stdout || err.message;
-    throw new Error(`git ${args.join(" ")} failed: ${details}`);
+    text = await response.text();
+  } catch (_err) {
+    // Fall through to the status text.
   }
+
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.error === "string" && parsed.error !== "") {
+      return parsed.error;
+    }
+  } catch (_err) {
+    // Not JSON.
+  }
+
+  const trimmed = text.trim();
+  return (trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed) || response.statusText || "(no message)";
+}
+
+// Lines that tell the user a { state: "quarantined" } publish result is waiting for review.
+function heldForReviewLines(result) {
+  const lines = [`${result.packageName}@${result.version} is HELD FOR REVIEW, not published yet`];
+  for (const finding of result.findings || []) {
+    const location = finding.file ? ` ${finding.file}${finding.line ? `:${finding.line}` : ""}` : "";
+    lines.push(`  - ${finding.rule || "finding"}${location}: ${finding.why || ""}`.trimEnd());
+  }
+  lines.push("It goes live once a registry admin approves it.");
+  return lines;
+}
+
+function describeNetworkError(registryUrl, err) {
+  const cause = err && err.cause && err.cause.message ? `: ${err.cause.message}` : "";
+  return new Error(`Could not reach the registry at ${registryUrl} (${err.message}${cause}).`);
+}
+
+async function registryFetch(registryUrl, urlPath, options) {
+  try {
+    return await fetch(`${registryUrl}${urlPath}`, options);
+  } catch (err) {
+    throw describeNetworkError(registryUrl, err);
+  }
+}
+
+function publishFailure(packageEntry, response, message) {
+  const label = `${packageEntry.name}@${packageEntry.version}`;
+  let hint = "";
+  if (response.status === 401) {
+    hint = '\nSign in again with "sof run package login".';
+  } else if (response.status === 409) {
+    hint = '\nVersions are immutable: bump "version" and publish again.';
+  } else if (response.status === 429) {
+    const retryAfter = response.headers.get("retry-after");
+    hint = retryAfter ? `\nRate limited. Retry in ${retryAfter} second(s) (Retry-After: ${retryAfter}).` : "\nRate limited. Try again shortly.";
+  }
+
+  const error = new Error(`Publishing ${label} failed (${response.status}): ${message}${hint}`);
+  error.status = response.status;
+  error.serverMessage = message;
+  return error;
 }
 
 class SofProvider {
   constructor(options = {}) {
     this.source = "sof";
-    this.repository = options.repository || SOF_INDEX_REPO;
-    this.branch = options.branch || SOF_INDEX_BRANCH;
+    this.registryUrl = (options.registryUrl || SOF_REGISTRY_URL).replace(/\/+$/, "");
+    this.token = options.token || "";
   }
 
-  // raw.githubusercontent.com caches branch URLs for minutes, so a fresh publish wouldn't be
-  // visible. Read the index at the branch's current commit instead (one API call per run),
-  // falling back to the branch name if the API is unavailable or rate-limited.
-  async resolveRef() {
-    if (!this.refPromise) {
-      this.refPromise = (async () => {
-        try {
-          const headers = { "User-Agent": "sof-cli", Accept: "application/vnd.github.sha" };
-          const token = process.env.GITHUB_TOKEN || process.env.SOF_TOKEN;
-          if (token) {
-            headers.Authorization = `Bearer ${token}`;
-          }
-
-          const response = await fetch(
-            `https://api.github.com/repos/${this.repository}/commits/${this.branch}`,
-            { headers }
-          );
-          const sha = response.ok ? (await response.text()).trim() : "";
-          return /^[0-9a-f]{40}$/.test(sha) ? sha : this.branch;
-        } catch (_err) {
-          return this.branch;
-        }
-      })();
+  getToken() {
+    if (this.token) {
+      return this.token;
     }
 
-    return this.refPromise;
-  }
-
-  async getRawBaseUrl() {
-    return `https://raw.githubusercontent.com/${this.repository}/${await this.resolveRef()}`;
-  }
-
-  getRepositoryGitUrl() {
-    return `https://github.com/${this.repository}.git`;
+    const found = findToken();
+    return found ? found.token : "";
   }
 
   async queryPackage(packageName) {
-    const { scope, name } = splitPackageName(packageName);
-    const indexPath = path.posix.join("index", scope, `${name}.json`);
-    const url = `${await this.getRawBaseUrl()}/${indexPath}`;
-    const response = await fetch(url);
+    const parts = splitPackageName(packageName);
+    const scope = parts.scope.toLowerCase();
+    const name = parts.name.toLowerCase();
+    if (!SEGMENT_PATTERN.test(scope) || !SEGMENT_PATTERN.test(name)) {
+      // Can't be a name this registry holds; let the caller fall through to the next source.
+      return null;
+    }
+
+    const indexPath = `index/${scope}/${name}.json`;
+    const response = await registryFetch(this.registryUrl, `/${indexPath}`);
     if (response.status === 404) {
       return null;
     }
@@ -113,7 +151,7 @@ class SofProvider {
       throw new Error(`Invalid JSON in Sof index file "${indexPath}": ${err.message}`);
     }
 
-    if (!parsed || typeof parsed !== "object" || typeof parsed.versions !== "object") {
+    if (!parsed || typeof parsed !== "object" || !parsed.versions || typeof parsed.versions !== "object") {
       throw new Error(`Sof index file "${indexPath}" must contain a "versions" object.`);
     }
 
@@ -136,24 +174,29 @@ class SofProvider {
   async downloadPackage(packageName, version) {
     const packageMetadata = await this.queryPackage(packageName);
     if (!packageMetadata) {
-      throw new Error(`Package ${packageName} was not found in Sof index "${this.repository}".`);
+      throw new Error(`Package ${packageName} was not found in the Sof registry (${this.registryUrl}).`);
     }
 
     const selectedVersion = packageMetadata.versions.find(
       (candidate) => candidate.version === version
     );
     if (!selectedVersion) {
-      throw new Error(`Package ${packageName}@${version} was not found in Sof index.`);
+      throw new Error(`Package ${packageName}@${version} was not found in the Sof registry.`);
     }
 
     const { scope, name } = splitPackageName(packageName);
     const artifactPath =
       selectedVersion.metadata && typeof selectedVersion.metadata.artifact === "string"
         ? selectedVersion.metadata.artifact
-        : path.posix.join("packages", scope, name, `${version}.tar.gz`);
+        : `packages/${scope.toLowerCase()}/${name.toLowerCase()}/${version}.tar.gz`;
 
-    const artifactUrl = `${await this.getRawBaseUrl()}/${artifactPath}`;
-    const response = await fetch(artifactUrl);
+    if (!isSafeArtifactPath(artifactPath)) {
+      throw new Error(
+        `Refusing to download ${packageName}@${version}: unexpected artifact path "${artifactPath}".`
+      );
+    }
+
+    const response = await registryFetch(this.registryUrl, `/${artifactPath}`);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(
@@ -170,110 +213,117 @@ class SofProvider {
     };
   }
 
-  ensureRepositoryConfigured() {
-    if (this.repository.includes("YOUR_USER/")) {
-      throw new Error(
-        `Set SOF_INDEX_REPO in src/packages/constants.js before publishing. Current value: ${this.repository}.`
-      );
-    }
-  }
+  // Every package the registry lists for `query` (and `scope`), across all result pages.
+  async searchPackages(options = {}) {
+    const packages = [];
+    let offset = 0;
 
-  resolveGitIdentity() {
-    const name = runGitCommand(["config", "--get", "user.name"]);
-    const email = runGitCommand(["config", "--get", "user.email"]);
-    if (!name || !email) {
-      throw new Error(
-        `Git user identity is not configured. Set "user.name" and "user.email" in local/global git config.`
-      );
-    }
-
-    return { name, email };
-  }
-
-  async publishPackage(packageEntry, archivePath, checksum) {
-    this.ensureRepositoryConfigured();
-    const gitIdentity = this.resolveGitIdentity();
-
-    const { scope, name } = splitPackageName(packageEntry.name);
-    const indexPath = path.posix.join("index", scope, `${name}.json`);
-    const artifactPath = path.posix.join("packages", scope, name, `${packageEntry.version}.tar.gz`);
-
-    const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "sof-index-publish-"));
-    const repositoryClonePath = path.join(temporaryDirectory, "index-repo");
-
-    try {
-      runGitCommand(["clone", this.getRepositoryGitUrl(), repositoryClonePath]);
-
-      try {
-        runGitCommand(["checkout", this.branch], { cwd: repositoryClonePath });
-      } catch (_err) {
-        runGitCommand(["checkout", "-b", this.branch], { cwd: repositoryClonePath });
+    while (true) {
+      const parameters = [];
+      if (options.query) {
+        parameters.push(`q=${encodeURIComponent(options.query)}`);
+      }
+      parameters.push(`limit=${SEARCH_PAGE_SIZE}`, `offset=${offset}`);
+      if (options.scope) {
+        parameters.push(`scope=${encodeURIComponent(options.scope)}`);
       }
 
-      runGitCommand(["config", "user.name", gitIdentity.name], { cwd: repositoryClonePath });
-      runGitCommand(["config", "user.email", gitIdentity.email], { cwd: repositoryClonePath });
-
-      const absoluteIndexPath = path.join(repositoryClonePath, indexPath);
-      let indexData = {
-        scope,
-        name,
-        versions: {},
-      };
-
-      if (fs.existsSync(absoluteIndexPath)) {
-        try {
-          indexData = JSON.parse(fs.readFileSync(absoluteIndexPath, "utf8"));
-        } catch (err) {
-          throw new Error(`Invalid JSON in existing index file "${indexPath}": ${err.message}`);
-        }
-      }
-
-      if (!indexData.versions || typeof indexData.versions !== "object") {
-        indexData.versions = {};
-      }
-
-      if (indexData.versions[packageEntry.version]) {
+      const response = await registryFetch(this.registryUrl, `/v1/packages?${parameters.join("&")}`);
+      if (!response.ok) {
         throw new Error(
-          `Package ${packageEntry.name}@${packageEntry.version} already exists in the Sof index.`
+          `Failed to search the Sof registry (${response.status}): ${await readErrorMessage(response)}`
         );
       }
 
-      indexData.versions[packageEntry.version] = {
+      const page = await response.json();
+      if (!page || !Array.isArray(page.packages)) {
+        throw new Error("Unexpected response from the Sof registry search.");
+      }
+
+      packages.push(...page.packages);
+      const total = Number(page.total) || 0;
+      if (page.packages.length === 0 || offset + SEARCH_PAGE_SIZE >= total) {
+        return packages;
+      }
+      offset += SEARCH_PAGE_SIZE;
+    }
+  }
+
+  // Resolves to { state: "published", ... } or { state: "quarantined", findings }; the latter
+  // means the registry accepted the upload but is holding it for admin review.
+  async publishPackage(packageEntry, archivePath, checksum) {
+    const token = this.getToken();
+    if (!token) {
+      throw new Error(NOT_SIGNED_IN);
+    }
+
+    const { scope, name } = splitPackageName(packageEntry.name);
+    const metadata = Buffer.from(
+      JSON.stringify({
+        name: packageEntry.name,
+        version: packageEntry.version,
         realm: packageEntry.realm,
         description: packageEntry.description,
         license: packageEntry.license,
         authors: packageEntry.authors,
         dependencies: dependenciesArrayToObject(packageEntry.dependencies),
         checksum,
-        artifact: artifactPath,
-        published: new Date().toISOString(),
-      };
+      }),
+      "utf8"
+    );
 
-      fs.mkdirSync(path.dirname(absoluteIndexPath), { recursive: true });
-      fs.writeFileSync(absoluteIndexPath, `${JSON.stringify(indexData, null, 2)}\n`, "utf8");
+    const lengthPrefix = Buffer.alloc(4);
+    lengthPrefix.writeUInt32BE(metadata.length, 0);
+    const body = Buffer.concat([lengthPrefix, metadata, fs.readFileSync(archivePath)]);
 
-      const absoluteArtifactPath = path.join(repositoryClonePath, artifactPath);
-      fs.mkdirSync(path.dirname(absoluteArtifactPath), { recursive: true });
-      fs.copyFileSync(archivePath, absoluteArtifactPath);
+    const response = await registryFetch(this.registryUrl, "/v1/publish", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/x-sof-publish",
+      },
+      body,
+    });
 
-      runGitCommand(["add", indexPath, artifactPath], { cwd: repositoryClonePath });
-      runGitCommand(["commit", "-m", `Publish ${packageEntry.name}@${packageEntry.version}`], {
-        cwd: repositoryClonePath,
-      });
-      runGitCommand(["push", "origin", this.branch], { cwd: repositoryClonePath });
-
-      return {
-        packageName: packageEntry.name,
-        version: packageEntry.version,
-        indexPath,
-        artifactPath,
-      };
-    } finally {
-      fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    if (!response.ok) {
+      throw publishFailure(packageEntry, response, await readErrorMessage(response));
     }
+
+    let reply = {};
+    try {
+      reply = (await response.json()) || {};
+    } catch (_err) {
+      // A success without a readable body still counts as success.
+    }
+
+    const result = {
+      packageName: packageEntry.name,
+      version: packageEntry.version,
+      indexPath: path.posix.join("index", scope.toLowerCase(), `${name.toLowerCase()}.json`),
+      artifactPath: path.posix.join(
+        "packages",
+        scope.toLowerCase(),
+        name.toLowerCase(),
+        `${packageEntry.version}.tar.gz`
+      ),
+    };
+
+    if (response.status === 202 || reply.state === "quarantined") {
+      return {
+        ...result,
+        state: "quarantined",
+        findings: Array.isArray(reply.findings) ? reply.findings : [],
+      };
+    }
+
+    return { ...result, state: "published" };
   }
 }
 
 module.exports = {
   SofProvider,
+  heldForReviewLines,
+  isSafeArtifactPath,
+  readErrorMessage,
+  registryFetch,
 };
