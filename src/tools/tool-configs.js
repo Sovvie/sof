@@ -26,6 +26,18 @@ function normalizeAlias(alias) {
   return String(alias || "").trim().toLowerCase();
 }
 
+// Whether anything is at the path, a symbolic link included, even one that points nowhere:
+// existsSync says false for that, and writing to it would create whatever it points at (on
+// Windows even an exclusive create follows such a link).
+function pathExists(targetPath) {
+  try {
+    fs.lstatSync(targetPath);
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
 function scaffoldToolConfigs(projectDir, toolAliases) {
   const output = {
     created: [],
@@ -45,13 +57,20 @@ function scaffoldToolConfigs(projectDir, toolAliases) {
     }
 
     const targetPath = path.resolve(projectDir, config.fileName);
-    if (fs.existsSync(targetPath)) {
+    if (pathExists(targetPath)) {
       output.skippedExisting.push(config.fileName);
       continue;
     }
 
-    fs.writeFileSync(targetPath, config.contents, "utf8");
-    output.created.push(config.fileName);
+    try {
+      fs.writeFileSync(targetPath, config.contents, { encoding: "utf8", flag: "wx" });
+      output.created.push(config.fileName);
+    } catch (err) {
+      if (err.code !== "EEXIST") {
+        throw err;
+      }
+      output.skippedExisting.push(config.fileName);
+    }
   }
 
   return output;

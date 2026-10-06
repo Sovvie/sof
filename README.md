@@ -1,6 +1,6 @@
 # sof
 
-A command-line package manager for Roblox projects, plus Rokit tool setup. Everything else (docs generation, uploaders, video spritesheets, ...) is an optional add-on you install from inside sof.
+A command-line package manager and toolchain manager for Roblox projects (it installs Rojo, Selene and the rest per project). Everything else (docs generation, uploaders, video spritesheets, ...) is an optional add-on you install from inside sof.
 
 ## Install
 
@@ -114,12 +114,15 @@ Add-ons without `"sandbox": true` still run inside sof's own process, trusted li
 | `SOF_AI_GUARD` | Set to `off` so sof does not add its deny rules for `~/.sof` to AI tools' settings |
 | `SOF_ACCOUNT_PROTECTION` | Set to `off` to keep the sov.gg refresh token in `account.json` instead of the OS secret store |
 | `SOF_NO_BROWSER` | Set to `1` to print the `sof run account login` address instead of opening a browser |
-| `SOF_HOME` | Where sof keeps `auth.json`, add-ons and its Rokit (default `~/.sof`) |
+| `SOF_HOME` | Where sof keeps `auth.json`, add-ons, tools and their shims (default `~/.sof`) |
+| `GITHUB_TOKEN` / `GH_TOKEN` | Raises GitHub's rate limit for tool downloads (sent to the GitHub API only) |
+| `SOF_GITHUB_API_URL` | GitHub API to read tool releases from instead of `https://api.github.com` (GitHub Enterprise, a mirror) |
+| `ROKIT_ROOT` | Where to look for tools Rokit already downloaded (default `~/.rokit`) |
 | `SOF_WALLY_CLIENT_VERSION` | `Wally-Version` header sent when downloading from Wally (default `0.3.2`; Wally accepts 0.3.0 and newer) |
 
 ## Tools
 
-sof has [Rokit](https://github.com/rojo-rbx/rokit) built in, so nobody on the project installs or runs Rokit (or Aftman/Foreman) themselves. List a project's tools under `[tools]` in `sof.toml`:
+sof installs and runs a project's tools (Rojo, Selene, StyLua, Wally, Lune, ...) itself, the way [Rokit](https://github.com/rojo-rbx/rokit), Aftman and Foreman do, so nobody on the project installs a separate toolchain manager and there is no `rokit.toml`. List the tools under `[tools]` in `sof.toml`, as `owner/repo@version` (a GitHub release):
 
 ```toml
 [tools]
@@ -130,12 +133,28 @@ selene = "Kampfkarren/selene@0.30.1"
 ```bash
 sof run install                       # packages + tools; only what is new or changed
 sof run install --force               # reinstall everything
-sof run tools install                 # tools only (skips tools Rokit already has)
+sof run tools install                 # tools only
 sof run tools add rojo-rbx/rojo       # add the latest release to [tools] and install it
+sof run tools add Kampfkarren/selene@0.28.0 --alias selene28   # a specific version, under another command name
+sof run tools remove selene28
+sof run tools outdated                # which tools have a newer release
+sof run tools update                  # move all of them to the latest release (or: update rojo; --check only reports)
 sof run tools list
+sof run tools import                  # bring in the tools of a rokit.toml / aftman.toml / foreman.toml
+sof run tools x JohnnyMorganz/StyLua --check src    # run a tool once, without adding it to a project
+sof run tools which rojo              # the program "rojo" runs from this folder
+sof run tools doctor                  # check shims, PATH and tools that something else shadows
 ```
 
-sof downloads its own Rokit into `~/.sof/rokit` and sets it up the first time (the installer does this too, or run `sof run tools setup`): tools are linked into `~/.rokit/bin`, which is added to your PATH, and each tool runs at the version pinned in the nearest `rokit.toml`. sof writes that `rokit.toml` from `[tools]`, so `sof.toml` is the only file you edit; gitignore the generated `rokit.toml`. If another toolchain manager's copy of a tool comes first on PATH, `sof run tools install` warns about it. `sof run tools rokit <args>` runs the built-in Rokit directly for anything else.
+Each version is downloaded once into `~/.sof/tools/<owner>/<repo>/<version>`. A small shim named after each tool goes in `~/.sof/bin` (the folder the `sof` command itself lives in, already on your PATH), and running `rojo` there starts the version pinned in the nearest `sof.toml`, looking from the current folder upwards; a nearer file wins only for the tools it lists. Two projects can pin different versions of the same tool with nothing to switch. `sof run tools setup` prepares the folder (the installer and `sof run self update` run it for you). On Windows the shim is a real `.exe`, built once with the C# compiler that ships with Windows, because editors and other programs start tools without a shell and can't run `.cmd` files; on macOS and Linux it is a `sh` script. If another copy of a tool comes first on PATH (a Rokit, Aftman or Foreman link, a `cargo install`), `sof run tools install` and `doctor` warn about it. A few names can't be tool aliases (`node`, `npm`, `git`, `sh`, `curl`, anything starting with `sof`, and similar): a `sof.toml` from a repository you just cloned must not be able to put a program of that name first on your PATH.
+
+sof picks the release file for your platform by name (`windows-x86_64`, `win64`, `macos-aarch64`, `linux-x86_64-musl`, ... all work; Windows on Arm and Apple silicon use an x64 build when there is no native one), opens `.zip`, `.tar.gz`, `.tar` and `.gz` files (and `.tar.xz`, with the `tar` program your system already has) or takes a bare executable, and keeps just the tool's executable. It checks the download against the size and sha256 GitHub lists for it. Set `GITHUB_TOKEN` (or `GH_TOKEN`) to raise GitHub's rate limit or reach a private repository's releases; it is only ever sent to `api.github.com`.
+
+**Global tools.** `--global` on `install`, `add`, `remove`, `update`, `outdated`, `list` and `import` uses `~/.sof/tools.toml` (the same `[tools]` table) instead of `sof.toml`. Those tools work in every folder that doesn't pin its own version.
+
+**Lockfile.** `sof run tools lock` writes `sof.tools.lock` next to `sof.toml`: the sha256 of the release file each tool was installed from, for your platform. Commit it. From then on every install checks its download against it, so a release that was swapped after you locked it is refused instead of run. Each platform adds its own lines the first time it installs, `sof run tools install --locked` fails unless the lock already covers every tool (for CI), and `lock --refresh` records this platform's checksums again. The file only exists once you ask for it.
+
+**Moving from Rokit, Aftman or Foreman.** In a project that still has a `rokit.toml`, `aftman.toml` or `foreman.toml`, run `sof run tools import`: it adds that file's tools to `sof.toml` (creating it if needed), installs them and leaves the old file alone. Foreman tools from GitLab and version ranges can't be imported (sof pins one exact version); they are listed so you can add them by hand. For the machine itself, there is nothing to do but run `sof run install`: sof copies any version Rokit already downloaded (`~/.rokit/tool-storage`), deletes the `rokit.toml` that earlier sof versions generated in each project (one you wrote yourself is left alone) and the Rokit copy it kept in `~/.sof/rokit`. If `~/.rokit/bin` is still earlier on your PATH than `~/.sof/bin`, Rokit's links run first and no longer know your versions: take it off your PATH (`doctor` says so). `sof run tools rokit` is gone; its commands are built in.
 
 ## Add-ons
 

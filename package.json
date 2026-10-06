@@ -1,7 +1,7 @@
 {
   "name": "sof",
-  "version": "2.3.0",
-  "description": "Sof CLI: Roblox package manager and Rokit tool setup, with optional add-ons",
+  "version": "2.4.0",
+  "description": "Sof CLI: Roblox package manager and toolchain manager (Rojo, Selene, ...), with optional add-ons",
   "license": "MIT",
   "bin": {
     "sof": "./bin/sof.js"

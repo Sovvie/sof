@@ -489,8 +489,11 @@ function resolveLuauLspBinaryPath() {
   }
 
   const home = os.homedir();
+  const sofHome = process.env.SOF_HOME ? path.resolve(process.env.SOF_HOME) : path.join(home, ".sof");
   const executableName = process.platform === "win32" ? "luau-lsp.exe" : "luau-lsp";
+  // sof's own tool storage first (sof run tools add JohnnyMorganz/luau-lsp), then Rokit's.
   const candidateRoots = [
+    path.join(sofHome, "tools", "johnnymorganz", "luau-lsp"),
     path.join(home, ".rokit", "tool-storage", "johnnymorganz", "luau-lsp"),
     path.join(home, ".rokit", "bin"),
   ];

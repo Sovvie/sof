@@ -64,6 +64,20 @@ function protectFromAiTools(cliDirectory) {
   }
 }
 
+// The shims in ~/.sof/bin that start rojo, selene, ... read which sof to run from a small file
+// that only the new version knows how to write, so it runs as a separate process too. A problem
+// here never fails the update either: "sof run tools setup" does the same by hand.
+function refreshToolShims(cliDirectory) {
+  try {
+    childProcess.spawnSync(process.execPath, [path.join(cliDirectory, "bin", "sof.js"), "run", "tools", "setup", "--quiet"], {
+      stdio: "inherit",
+      timeout: 120000,
+    });
+  } catch (_err) {
+    // Run it later with: sof run tools setup
+  }
+}
+
 async function update() {
   const current = require("../../package.json").version;
   const release = await latestRelease();
@@ -95,6 +109,7 @@ async function update() {
 
   writeShims(cliDirectory);
   protectFromAiTools(cliDirectory);
+  refreshToolShims(cliDirectory);
   console.log(`✓ sof ${release.version} installed. Open a new terminal if the old version still runs.`);
 }
 

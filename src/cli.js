@@ -22,7 +22,7 @@ COMMANDS:
   run account login|logout|whoami|grants|revoke   Your sov.gg sign-in (private add-ons; add-ons use it without seeing it)
   run package owner add|remove <scope> <user>     Manage who may publish to a scope
   run package yank|unyank <scope/name> <version>  Hide a version from new installs
-  run tools install|list|add|setup|self-update    Tools (rojo, selene, ...) via sof's built-in Rokit
+  run tools install|add|remove|update|list|...    Tools (rojo, selene, ...) pinned per project in sof.toml
   run addon list|add|remove|update|publish        Optional features (docs, video, uploader, ...)
   run self update                                 Update sof itself
 

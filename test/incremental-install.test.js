@@ -13,7 +13,6 @@ const {
   isInstallCurrent,
   recordInstalled,
 } = require("../src/packages/state");
-const { findMissingTools } = require("../src/rokit/installed");
 const { writeLockfile, readLockfile } = require("../src/packages/lockfile");
 
 const PKG_PATH = "src/Packages";
@@ -172,21 +171,3 @@ test("writeLockfile leaves an unchanged lockfile alone", () => {
   assert.equal(fs.statSync(lockfilePath).mtimeMs, past.getTime());
 });
 
-test("findMissingTools compares tool storage and links with [tools]", () => {
-  const rokitHome = tempDir();
-  const suffix = process.platform === "win32" ? ".exe" : "";
-  fs.mkdirSync(path.join(rokitHome, "tool-storage", "kampfkarren", "selene", "0.31.0"), { recursive: true });
-  fs.mkdirSync(path.join(rokitHome, "bin"), { recursive: true });
-  fs.writeFileSync(path.join(rokitHome, "bin", `selene${suffix}`), "");
-
-  const tools = {
-    selene: "Kampfkarren/selene@0.31.0",
-    rojo: "rojo-rbx/rojo@7.6.1",
-  };
-  assert.deepEqual(findMissingTools(tools, rokitHome).map((tool) => tool.alias), ["rojo"]);
-
-  assert.deepEqual(
-    findMissingTools({ selene: "Kampfkarren/selene@0.32.0" }, rokitHome).map((tool) => tool.alias),
-    ["selene"]
-  );
-});

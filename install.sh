@@ -2,7 +2,7 @@
 # Installs sof for the current user (macOS / Linux).
 #   curl -fsSL https://github.com/sovvie/sof/releases/latest/download/install.sh | sh
 # Set SOF_CLI_REPO to install from a fork, SOF_HOME to change the install folder,
-# SOF_SKIP_TOOLS=1 to skip setting up the built-in Rokit.
+# SOF_SKIP_TOOLS=1 to skip preparing sof's tool shims.
 set -eu
 
 REPO="${SOF_CLI_REPO:-sovvie/sof}"
@@ -63,9 +63,9 @@ case ":$PATH:" in
     ;;
 esac
 
-# sof has Rokit built in: set it up now so `sof run install` can install a project's tools.
+# sof manages tools (rojo, selene, ...) itself: prepare its shims now so `sof run install` can install a project's tools.
 if [ -z "${SOF_SKIP_TOOLS:-}" ]; then
-  echo "Setting up tools (built-in Rokit)..."
+  echo "Setting up tools..."
   "$BIN_DIR/sof" run tools setup || echo "Tool setup failed; it will be retried the first time you run: sof run install"
 fi
 
