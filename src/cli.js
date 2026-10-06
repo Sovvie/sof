@@ -19,6 +19,7 @@ COMMANDS:
   run package outdated [config]                   Show available package updates
   run package search <query>                      Search the registry and Wally
   run package login|logout|whoami                 Sign in to the registry (needed to publish)
+  run account login|logout|whoami|grants|revoke   Your sov.gg sign-in (private add-ons; add-ons use it without seeing it)
   run package owner add|remove <scope> <user>     Manage who may publish to a scope
   run package yank|unyank <scope/name> <version>  Hide a version from new installs
   run tools install|list|add|setup|self-update    Tools (rojo, selene, ...) via sof's built-in Rokit
@@ -74,6 +75,7 @@ async function runExtendedHelp(argv) {
 const BUILT_IN = {
   install: () => require("./commands/install").runInstall,
   package: () => require("./commands/package").runPackage,
+  account: () => require("./commands/account").runAccount,
   tools: () => require("./commands/tools").runTools,
   addon: () => require("./commands/addon").runAddon,
   self: () => require("./commands/self").runSelf,
@@ -104,6 +106,19 @@ async function runRunCommand(argv) {
 
   const addon = findAddonForCommand(command);
   if (addon) {
+    // An add-on that opted in ("sandbox": true) runs in a restricted child process and uses the
+    // sov.gg account through sof, never holding the login. The rest run in this process.
+    let sandboxed = false;
+    try {
+      sandboxed = require("./addons/store").readAddonDescriptor(addon.directory).sandbox === true;
+    } catch {
+      sandboxed = false;
+    }
+    if (sandboxed) {
+      await require("./addons/run-sandboxed").runSandboxed(addon, rest);
+      return;
+    }
+
     const module = require(path.join(addon.directory, addon.entry));
     const run = module[addon.export || "run"];
     if (typeof run !== "function") {

@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .env
+
+# Private add-ons: used locally, never committed or released
+addons/affine/

@@ -50,6 +50,20 @@ function writeShims(cliDirectory) {
   fs.writeFileSync(path.join(binDirectory, "sof"), `#!/bin/sh\nexec node "${entry}" "$@"\n`, { mode: 0o755 });
 }
 
+// The new version adds the deny rules that keep AI coding tools out of ~/.sof (see
+// src/account/ai-guard.js). It runs as a separate process so the new code does it, not the old.
+// A problem here never fails the update.
+function protectFromAiTools(cliDirectory) {
+  try {
+    childProcess.spawnSync(process.execPath, [path.join(cliDirectory, "bin", "sof.js"), "run", "account", "guard", "--quiet"], {
+      stdio: "inherit",
+      timeout: 30000,
+    });
+  } catch (_err) {
+    // Run it later with: sof run account guard
+  }
+}
+
 async function update() {
   const current = require("../../package.json").version;
   const release = await latestRelease();
@@ -80,6 +94,7 @@ async function update() {
   }
 
   writeShims(cliDirectory);
+  protectFromAiTools(cliDirectory);
   console.log(`✓ sof ${release.version} installed. Open a new terminal if the old version still runs.`);
 }
 

@@ -89,6 +89,10 @@ if (-not $env:SOF_SKIP_TOOLS) {
     }
 }
 
+# Keep AI coding tools (Claude Code, Cursor CLI) from reading or editing ~/.sof, where sign-ins live.
+# Opt out with SOF_AI_GUARD=off, or later with: sof run account guard --off
+& (Join-Path $binDir "sof.cmd") run account guard --quiet
+
 Write-Host ""
 Write-Host "sof $version is installed. Open a new terminal, then run: sof --help" -ForegroundColor Green
 Write-Host "(Editors like Cursor/VS Code only see the new PATH after you fully quit them, all windows.)"

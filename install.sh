@@ -69,6 +69,10 @@ if [ -z "${SOF_SKIP_TOOLS:-}" ]; then
   "$BIN_DIR/sof" run tools setup || echo "Tool setup failed; it will be retried the first time you run: sof run install"
 fi
 
+# Keep AI coding tools (Claude Code, Cursor CLI) from reading or editing ~/.sof, where sign-ins live.
+# Opt out with SOF_AI_GUARD=off, or later with: sof run account guard --off
+"$BIN_DIR/sof" run account guard --quiet || true
+
 echo ""
 echo "sof $VERSION is installed. Open a new terminal, then run: sof --help"
 echo "Optional features: sof run addon list"

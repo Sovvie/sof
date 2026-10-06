@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { SOF_REGISTRY_URL } = require("../constants");
 const { NOT_SIGNED_IN, findToken } = require("../auth");
+const { getAccessToken, noteRegistryResponse } = require("../../account/store");
 
 const SEARCH_PAGE_SIZE = 100;
 const SEGMENT_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
@@ -82,9 +83,29 @@ function describeNetworkError(registryUrl, err) {
   return new Error(`Could not reach the registry at ${registryUrl} (${err.message}${cause}).`);
 }
 
+// Reads carry the staff sign-in (private packages) when there is one. Requests that already carry
+// an Authorization header (publishing, whoami) are left alone, and so are requests when nobody is
+// signed in, so everyone else's behaviour is unchanged.
+async function withStaffAuth(registryUrl, options) {
+  const method = String((options && options.method) || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    return options;
+  }
+  const given = (options && options.headers) || {};
+  const existing = typeof given.entries === "function" ? Object.fromEntries(given.entries()) : given;
+  if (Object.keys(existing).some((key) => key.toLowerCase() === "authorization")) {
+    return options;
+  }
+  const token = await getAccessToken(registryUrl);
+  return token ? { ...options, headers: { ...existing, Authorization: `Bearer ${token}` } } : options;
+}
+
 async function registryFetch(registryUrl, urlPath, options) {
+  const withAuth = await withStaffAuth(registryUrl, options);
   try {
-    return await fetch(`${registryUrl}${urlPath}`, options);
+    const response = await fetch(`${registryUrl}${urlPath}`, withAuth);
+    noteRegistryResponse(response);
+    return response;
   } catch (err) {
     throw describeNetworkError(registryUrl, err);
   }

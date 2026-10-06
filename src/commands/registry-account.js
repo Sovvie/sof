@@ -137,6 +137,9 @@ async function runLogin(argv) {
     console.log(COMMAND_HELP.login);
     return;
   }
+  if (argv.includes("--staff")) {
+    throw new Error("The sov.gg sign-in moved: run \"sof run account login\". (package login is for the GitHub sign-in used to publish.)");
+  }
   if (argv.length > 0) {
     throw new Error("package login takes no arguments.");
   }
@@ -166,6 +169,9 @@ async function runLogout(argv) {
   if (isHelp(argv)) {
     console.log(COMMAND_HELP.logout);
     return;
+  }
+  if (argv.includes("--staff")) {
+    throw new Error("The sov.gg sign-in moved: run \"sof run account logout\". (package logout forgets the GitHub sign-in.)");
   }
   if (argv.length > 0) {
     throw new Error("package logout takes no arguments.");

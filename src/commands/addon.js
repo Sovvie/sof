@@ -9,6 +9,7 @@ const semver = require("semver");
 const tar = require("tar");
 
 const { requireToken } = require("../packages/auth");
+const { readAccount } = require("../account/store");
 const { createRegistry } = require("../packages/registry");
 const { heldForReviewLines } = require("../packages/providers/sof");
 const { isYanked } = require("../packages/resolver");
@@ -101,7 +102,10 @@ async function addFromIndex(spec) {
   const packageName = `${ADDON_SCOPE}/${name}`;
   const entry = await registry.queryPackage(packageName, { preferredSource: "sof", allowFallback: false });
   if (!entry) {
-    throw new Error(`No add-on named "${name}". Run "sof run addon list" to see what's available.`);
+    const hint = readAccount()
+      ? ""
+      : ' If it is a private company add-on, sign in first with "sof run account login".';
+    throw new Error(`No add-on named "${name}". Run "sof run addon list" to see what's available.${hint}`);
   }
 
   // Yanked versions are never picked for a fresh install.
