@@ -8,12 +8,13 @@ const childProcess = require("child_process");
 const os = require("os");
 const path = require("path");
 
+const { safeText } = require("../safe-text");
 const { findToolEntry } = require("./resolve");
-const { parseToolSpecifier } = require("./spec");
+const { normalizeAlias, parseToolSpecifier } = require("./spec");
 const { isToolInstalled, toolExecutablePath } = require("./store");
 
 function fail(message) {
-  console.error(`sof: ${message}`);
+  console.error(`sof: ${safeText(message)}`);
   return 1;
 }
 
@@ -21,13 +22,14 @@ function displayDirectory(file) {
   return path.dirname(file);
 }
 
-// Starts the program and resolves to its exit code. Ctrl+C reaches the tool itself (it shares our
-// console or process group), so it is ignored here and we wait for the tool to finish.
-function spawnTool(executable, args) {
+// Starts the program (never through a shell) and resolves to its exit code. Ctrl+C reaches the tool
+// itself (it shares our console or process group), so it is ignored here and we wait for the tool
+// to finish. options: { cwd, env }.
+function spawnTool(executable, args, options = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = childProcess.spawn(executable, args, { stdio: "inherit" });
+      child = childProcess.spawn(executable, args, { stdio: "inherit", cwd: options.cwd, env: options.env });
     } catch (err) {
       // Windows throws for a file that isn't a program (a damaged or quarantined download).
       console.error(`sof: couldn't start ${executable}: ${err.message}`);
@@ -72,6 +74,7 @@ async function runTool(alias, args) {
 
   let spec;
   try {
+    normalizeAlias(entry.alias, `${entry.file}: [tools]`);
     spec = parseToolSpecifier(entry.specifier, `${entry.file}: [tools].${entry.alias}`);
   } catch (err) {
     return fail(err.message);

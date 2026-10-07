@@ -5,6 +5,8 @@ const path = require("path");
 const semver = require("semver");
 const toml = require("smol-toml");
 
+const { assertPackageAlias, assertProjectFolder } = require("./safe-path");
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -41,6 +43,8 @@ function assertAlias(alias, contextLabel) {
   if (/[\\/]/.test(alias)) {
     throw new Error(`${contextLabel}: dependency alias "${alias}" cannot contain path separators.`);
   }
+
+  assertPackageAlias(alias, `${contextLabel}: dependency alias`);
 }
 
 function assertPackageName(packageName, contextLabel) {
@@ -100,10 +104,14 @@ function normalizeDependencyGroup(rawGroup, groupIndex) {
   if (typeof rawGroup.path !== "string" || rawGroup.path.trim() === "") {
     throw new Error(`${indexLabel}: "path" is required and must be a non-empty string.`);
   }
+  assertProjectFolder(rawGroup.path.trim(), `${indexLabel}: "path"`);
 
   let keepUnknownInstances = [];
   if (rawGroup.keep_unknown_instances !== undefined) {
     keepUnknownInstances = toStringList(rawGroup.keep_unknown_instances, "keep_unknown_instances", indexLabel);
+    for (const name of keepUnknownInstances) {
+      assertPackageAlias(name, `${indexLabel}: "keep_unknown_instances"`);
+    }
   }
 
   const dependencies = [];

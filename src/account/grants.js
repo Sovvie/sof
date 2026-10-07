@@ -80,9 +80,18 @@ function revoke(addonName) {
 function ask(question) {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+    let answered = false;
     rl.question(question, (answer) => {
+      answered = true;
       rl.close();
       resolve(/^y(es)?$/i.test(answer.trim()));
+    });
+    // End of input (Ctrl-D, a closed pipe) never calls the callback above; without this the promise
+    // would stay pending and sof would exit with status 0, as if the question had been answered.
+    rl.on("close", () => {
+      if (!answered) {
+        resolve(false);
+      }
     });
   });
 }
@@ -111,4 +120,4 @@ async function ensureGranted(descriptor, { prompt = ask, interactive = Boolean(p
   return hosts;
 }
 
-module.exports = { coversHosts, ensureGranted, grant, grantedHosts, grantsFile, readGrants, requestedHosts, revoke };
+module.exports = { ask, coversHosts, ensureGranted, grant, grantedHosts, grantsFile, readGrants, requestedHosts, revoke };

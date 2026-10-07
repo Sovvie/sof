@@ -467,7 +467,8 @@ test("lock records checksums, later installs are held to them, --locked needs th
       await capture(() => runToolsInstall(null, { locked: true }));
 
       // The release is swapped on the server after locking: a fresh machine must refuse it.
-      fs.rmSync(path.join(process.env.SOF_HOME, "tools"), { recursive: true, force: true });
+      // Retries: Windows (a virus scanner looking at the files just written) sometimes holds one for a moment.
+      fs.rmSync(path.join(process.env.SOF_HOME, "tools"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       const spec = parseToolSpecifier("acme/widget@1.0.0");
       const swapped = await startGithub({ "acme/widget": [{ tag: "v1.0.0", content: "TWO" }] });
       try {
@@ -535,6 +536,10 @@ test("tools exec explains itself when it can't run something", async () => {
 
       fs.writeFileSync(path.join(project, "sof.toml"), '[tools]\nwidget = "not a spec"\n');
       assert.match(await capture(async () => assert.equal(await runTool("widget", []), 1)), /must use "owner\/repo@version"/);
+
+      // A name that install would refuse (it would shadow a system program) isn't run by exec either.
+      fs.writeFileSync(path.join(project, "sof.toml"), '[tools]\ngit = "acme/git@1.0.0"\n');
+      assert.match(await capture(async () => assert.equal(await runTool("git", []), 1)), /"git" is reserved/);
     });
   });
 });

@@ -22,6 +22,7 @@ const {
   updateToolsInConfig,
 } = require("../tools/manifest");
 const { findImportSource, readForeignTools } = require("../tools/import");
+const { safeText } = require("../safe-text");
 const { findToolEntry } = require("../tools/resolve");
 const { ensureShims, findCsc } = require("../tools/shims");
 const { formatSpecifier, normalizeAlias, parseToolId, parseToolSpecifier } = require("../tools/spec");
@@ -737,7 +738,7 @@ async function runImport(argv) {
   }
 
   for (const entry of skipped) {
-    console.warn(`  ! ${entry.alias} skipped: it ${entry.reason}. Add it by hand: sof run tools add owner/repo@version --alias ${entry.alias}`);
+    console.warn(safeText(`  ! ${entry.alias} skipped: it ${entry.reason}. Add it by hand: sof run tools add owner/repo@version --alias ${entry.alias}`));
   }
 
   if (added === 0) {

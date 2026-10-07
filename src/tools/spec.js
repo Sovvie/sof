@@ -21,6 +21,10 @@ const RESERVED_ALIASES = new Set([
   "tar", "gzip", "gunzip", "unzip", "zip", "curl", "wget", "git", "ssh", "scp", "sudo", "su", "doas",
   "where", "which", "whoami", "reg", "setx", "taskkill", "tasklist", "msiexec", "rundll32", "wscript", "cscript", "mshta",
   "python", "python3", "pip", "pip3", "ruby", "perl", "php", "java", "make", "cargo", "rustc", "go", "dotnet",
+  "gh", "code", "code-insiders", "cursor", "docker", "podman", "kubectl", "helm", "terraform", "aws", "az", "gcloud",
+  "brew", "apt", "apt-get", "dnf", "yum", "pacman", "winget", "choco", "scoop", "rustup", "openssl", "gpg",
+  "ssh-keygen", "ssh-add", "ssh-agent", "sftp", "rsync", "nc", "ncat", "telnet", "ftp", "vim", "vi", "nano", "emacs", "less", "more", "tmux",
+  "ping", "nslookup", "ipconfig", "netsh", "net", "sc", "schtasks", "wmic", "certutil", "bitsadmin", "regsvr32", "explorer",
 ]);
 
 // "sof", and every file sof keeps next to the shims (sof.cmd, sof.ps1, sof-shim.cfg, ...).

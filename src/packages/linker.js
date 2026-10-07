@@ -3,6 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const { assertInsideProject } = require("./safe-path");
+
 function countFiles(directoryPath) {
   let total = 0;
   const entries = fs.readdirSync(directoryPath, { withFileTypes: true });
@@ -108,6 +110,7 @@ function linkInstalledPackages(entries, configDirectory) {
     }
 
     const destinationRoot = path.resolve(configDirectory, entry.path);
+    assertInsideProject(configDirectory, destinationRoot);
     fs.mkdirSync(destinationRoot, { recursive: true });
 
     const layout = determineInstallLayout(entry.extractedPath);
@@ -156,6 +159,7 @@ function linkInstalledPackages(entries, configDirectory) {
 // listed packages: <alias>.meta.json next to a file, init.meta.json inside a folder.
 function writeRojoMeta(configDirectory, group) {
   const root = path.resolve(configDirectory, group.path);
+  assertInsideProject(configDirectory, root);
   const written = [];
 
   for (const alias of group.keepUnknownInstances || []) {
@@ -193,6 +197,7 @@ function pruneRemovedPackages(previousEntries, currentEntries, configDirectory) 
     }
 
     const root = path.resolve(configDirectory, entry.path);
+    assertInsideProject(configDirectory, root);
     for (const candidate of [
       path.join(root, entry.alias),
       path.join(root, `${entry.alias}.luau`),

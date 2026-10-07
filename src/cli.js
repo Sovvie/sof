@@ -3,6 +3,7 @@
 const path = require("path");
 
 const { findAddonForCommand, readManifest } = require("./addons/store");
+const { safeText } = require("./safe-text");
 
 const HELP_TEXT = `
 sof - Roblox package manager and project tooling
@@ -23,6 +24,7 @@ COMMANDS:
   run package owner add|remove <scope> <user>     Manage who may publish to a scope
   run package yank|unyank <scope/name> <version>  Hide a version from new installs
   run tools install|add|remove|update|list|...    Tools (rojo, selene, ...) pinned per project in sof.toml
+  run script <name>|list|trust|untrust            Project commands from [scripts] in sof.toml (no shell; trusted first)
   run addon list|add|remove|update|publish        Optional features (docs, video, uploader, ...)
   run self update                                 Update sof itself
 
@@ -77,6 +79,7 @@ const BUILT_IN = {
   package: () => require("./commands/package").runPackage,
   account: () => require("./commands/account").runAccount,
   tools: () => require("./commands/tools").runTools,
+  script: () => require("./commands/script").runScript,
   addon: () => require("./commands/addon").runAddon,
   self: () => require("./commands/self").runSelf,
 };
@@ -162,7 +165,7 @@ async function runCli(argv) {
     await runRunCommand(argv.slice(1));
   } catch (err) {
     // exitCode rather than exit(): exiting while a fetch socket closes aborts Node on Windows.
-    console.error(`Error: ${err.message}`);
+    console.error(`Error: ${safeText(err.message)}`);
     process.exitCode = 1;
   }
 }

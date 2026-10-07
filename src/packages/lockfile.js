@@ -4,6 +4,8 @@ const fs = require("fs");
 const crypto = require("crypto");
 const toml = require("smol-toml");
 
+const { assertPackageAlias, assertProjectFolder } = require("./safe-path");
+
 function hashText(text) {
   return `sha256:${crypto.createHash("sha256").update(text).digest("hex")}`;
 }
@@ -23,6 +25,10 @@ function normalizeLockEntry(rawEntry, index) {
       throw new Error(`${label}: "${field}" must be a non-empty string.`);
     }
   }
+
+  // sof.lock is as untrusted as sof.toml: package install deletes and writes at path/alias.
+  assertPackageAlias(rawEntry.alias.trim(), `${label}: "alias"`);
+  assertProjectFolder(rawEntry.path.trim(), `${label}: "path"`);
 
   return {
     name: rawEntry.name.trim(),
