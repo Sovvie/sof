@@ -27,10 +27,10 @@ function makeProject() {
       'path = "Packages"',
       'Signal = "scope/signal@^1.0.0"',
       "",
-      "[affine]",
-      "[[affine.sync]]",
+      "[table-sync]",
+      "[[table-sync.targets]]",
       'output = "src/Data/Weapons.luau"',
-      "[[affine.sync]]",
+      "[[table-sync.targets]]",
       'output = "../outside.luau"',
     ].join("\n")
   );
@@ -44,7 +44,7 @@ function makeProject() {
   return root;
 }
 
-const addons = [{ name: "affine", generated: ["affine.sync.output"], generatedPaths: ["gen/**"] }];
+const addons = [{ name: "table-sync", generated: ["table-sync.targets.output"], generatedPaths: ["gen/**"] }];
 
 test("skips gitignored, installed packages and what add-ons declare generated", () => {
   const root = makeProject();

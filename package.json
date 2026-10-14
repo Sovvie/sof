@@ -1,6 +1,6 @@
 {
   "name": "sof",
-  "version": "2.7.1",
+  "version": "2.7.2",
   "description": "Sof CLI: Roblox package manager and toolchain manager (Rojo, Selene, ...), with optional add-ons",
   "license": "MIT",
   "bin": {

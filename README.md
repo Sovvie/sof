@@ -343,20 +343,20 @@ sof picks the release file for your platform by name (`windows-x86_64`, `win64`,
 ## Copying a project
 
 ```bash
-sof run copy ../UntitledHarvest-copy              # the project in the current folder
-sof run copy Games/UntitledHarvest D:/Backups/UH  # another project
+sof run copy ../MyGame-copy              # the project in the current folder
+sof run copy Games/MyGame D:/Backups/MyGame# another project
 sof run copy ../copy --dry-run                    # list what would be copied and skipped
 ```
 
-Copies a project without what can be recreated there: files ignored by git (every `.gitignore`, `.git/info/exclude`, your global ignore), packages sof installed (each `<path>/<alias>` from `[[dependencies]]` and `sof.lock`), and whatever installed add-ons declare as generated, such as the files `[[affine.sync]]` writes. The `.git` folder is left out too (`--with-git` keeps it). `--exclude <glob>` skips more, `--force` copies into a folder that is not empty. `--all` copies everything, ignored and generated files and `.git` included.
+Copies a project without what can be recreated there: files ignored by git (every `.gitignore`, `.git/info/exclude`, your global ignore), packages sof installed (each `<path>/<alias>` from `[[dependencies]]` and `sof.lock`), and whatever installed add-ons declare as generated, such as the modules a data-sync add-on writes. The `.git` folder is left out too (`--with-git` keeps it). `--exclude <glob>` skips more, `--force` copies into a folder that is not empty. `--all` copies everything, ignored and generated files and `.git` included.
 
 It works on any folder or file, not only sof projects: outside a git repository the `.gitignore` files in the folder are read directly, a single file is copied as it is (into the destination if that is a folder), and symlinks are recreated (where the OS allows it; the summary counts any it could not). Run `sof run install` in the copy to get the packages back.
 
 An add-on says what it generates in its `sof-addon.json`, as data, so sandboxed add-ons are covered too:
 
 ```json
-"generated": ["affine.sync.output"],
-"generatedPaths": ["affine/cache/**"]
+"generated": ["table-sync.targets.output"],
+"generatedPaths": ["table-sync/cache/**"]
 ```
 
 `generated` lists keys of `sof.toml` whose values are paths (dotted, going through arrays of tables); `generatedPaths` lists globs relative to the project. Paths outside the project are ignored.

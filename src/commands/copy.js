@@ -33,7 +33,7 @@ SKIPPED:
     Outside a git repository the .gitignore files in the folder are read directly.
   - Packages sof installed: each <path>/<alias> from [[dependencies]] and sof.lock.
   - What installed add-ons declare as generated (see "generated" in an add-on's sof-addon.json),
-    for example the files an [[affine.sync]] entry writes.
+    for example the modules a data-sync add-on writes.
 `;
 
 function posix(value) {
@@ -142,7 +142,7 @@ function generatedByProject(projectDir, { addons } = {}) {
     }
   }
 
-  // Add-ons: "generated" lists sof.toml keys whose values are paths ("affine.sync.output");
+  // Add-ons: "generated" lists sof.toml keys whose values are paths ("table-sync.targets.output");
   // "generatedPaths" lists globs relative to the project.
   for (const addon of addons || installedAddonDescriptors()) {
     const label = `add-on ${addon.name}`;
