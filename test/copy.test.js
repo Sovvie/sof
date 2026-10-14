@@ -82,3 +82,34 @@ test("copies the planned files and refuses a non-empty destination", async () =>
   await assert.rejects(runCopy([root, destination]), /not empty/);
   await assert.rejects(runCopy([root, path.join(root, "inner")]), /inside/);
 });
+
+test("works outside git: applies .gitignore files directly, copies single files, --all keeps everything", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sof-copy-plain-"));
+  write(root, ".gitignore", "*.log\n/dist/\n!keep.log\n");
+  write(root, "a.txt");
+  write(root, "debug.log");
+  write(root, "keep.log");
+  write(root, "dist/x.js");
+  write(root, "sub/dist/y.js");
+  write(root, "sub/.gitignore", "local.txt\n");
+  write(root, "sub/local.txt");
+  write(root, "sub/ok.txt");
+  const plan = planCopy(root, { addons: [], useGit: false });
+  assert.deepEqual(plan.files.filter((f) => f !== ".gitignore" && f !== "sub/.gitignore"), [
+    "a.txt",
+    "keep.log",
+    "sub/dist/y.js",
+    "sub/ok.txt",
+  ]);
+  assert.ok(planCopy(root, { addons: [], all: true }).files.includes("dist/x.js"));
+
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "sof-copy-file-"));
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await runCopy([path.join(root, "a.txt"), out]);
+  } finally {
+    console.log = log;
+  }
+  assert.ok(fs.existsSync(path.join(out, "a.txt")));
+});

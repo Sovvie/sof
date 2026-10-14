@@ -12,21 +12,25 @@ const toml = require("smol-toml");
 const { readManifest, readAddonDescriptor } = require("../addons/store");
 
 const HELP_TEXT = `
-sof run copy - Copy a project, leaving out what sof or git can recreate
+sof run copy - Copy a project, folder or file, leaving out what sof or git can recreate
 
 USAGE:
-  sof run copy <destination>             Copy the project in the current folder
-  sof run copy <source> <destination>    Copy another project
+  sof run copy <destination>             Copy the folder you are in
+  sof run copy <source> <destination>    Copy another folder, or a single file
+
+Works on any folder: a git repository, or a plain folder (its .gitignore files are applied
+directly). Symlinks are recreated.
 
 OPTIONS:
   --dry-run          Show what would be copied and skipped, and copy nothing
   --force            Copy into a destination folder that is not empty
   --with-git         Also copy the .git folder (left out by default)
   --exclude <glob>   Also skip paths matching <glob>, relative to the project (repeatable)
+  --all              Copy everything: ignored and generated files, and .git
 
 SKIPPED:
   - Files ignored by git (.gitignore at any level, .git/info/exclude, your global ignore file).
-    This needs the project to be a git repository; otherwise it is reported and not applied.
+    Outside a git repository the .gitignore files in the folder are read directly.
   - Packages sof installed: each <path>/<alias> from [[dependencies]] and sof.lock.
   - What installed add-ons declare as generated (see "generated" in an add-on's sof-addon.json),
     for example the files an [[affine.sync]] entry writes.
@@ -182,16 +186,114 @@ function walk(projectDir, relative, output) {
   }
 }
 
-const isGitInternal = (file) => file === ".git" || file.startsWith(".git/");
+// A small .gitignore reader for folders that are not inside a git repository.
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+}
+
+function globToRegex(pattern) {
+  let out = "";
+  for (let i = 0; i < pattern.length; i += 1) {
+    const c = pattern[i];
+    if (c === "*") {
+      const slashBefore = i === 0 || pattern[i - 1] === "/";
+      if (pattern[i + 1] === "*" && slashBefore && pattern[i + 2] === "/") {
+        out += "(?:.*/)?";
+        i += 2;
+      } else if (pattern[i + 1] === "*" && slashBefore && i + 2 === pattern.length) {
+        out += ".*";
+        i += 1;
+      } else {
+        out += "[^/]*";
+        if (pattern[i + 1] === "*") i += 1;
+      }
+    } else if (c === "?") {
+      out += "[^/]";
+    } else if (c === "[" && pattern.indexOf("]", i + 2) !== -1) {
+      const end = pattern.indexOf("]", i + 2);
+      out += `[${pattern.slice(i + 1, end).replace(/^!/, "^").replace(/\\/g, "\\\\")}]`;
+      i = end;
+    } else if (c === "\\" && i + 1 < pattern.length) {
+      i += 1;
+      out += escapeRegex(pattern[i]);
+    } else {
+      out += escapeRegex(c);
+    }
+  }
+  return out;
+}
+
+function parseIgnoreFile(text) {
+  const rules = [];
+  for (const raw of text.split(/\r?\n/)) {
+    let line = raw.replace(/\s+$/, "");
+    if (line === "" || line.startsWith("#")) continue;
+    const negate = line.startsWith("!");
+    if (negate) line = line.slice(1);
+    if (line.startsWith("\\#") || line.startsWith("\\!")) line = line.slice(1);
+    const dirOnly = line.endsWith("/");
+    if (dirOnly) line = line.slice(0, -1);
+    if (line === "") continue;
+    const anchored = line.includes("/");
+    if (line.startsWith("/")) line = line.slice(1);
+    const body = globToRegex(line);
+    rules.push({ negate, dirOnly, regex: new RegExp(anchored ? `^${body}$` : `(?:^|/)${body}$`) });
+  }
+  return rules;
+}
+
+// Every file under root that its .gitignore files do not exclude (and not .git).
+function ignoreAwareWalk(root) {
+  const output = [];
+  const visit = (relative, inherited) => {
+    let rules = inherited;
+    const ignoreFile = path.join(root, relative, ".gitignore");
+    if (fs.existsSync(ignoreFile)) {
+      try {
+        const own = parseIgnoreFile(fs.readFileSync(ignoreFile, "utf8"));
+        rules = inherited.concat(own.map((rule) => ({ ...rule, base: relative })));
+      } catch {
+        // unreadable: treated as no rules
+      }
+    }
+    const isIgnored = (child, isDir) => {
+      let ignored = false;
+      for (const rule of rules) {
+        if (rule.dirOnly && !isDir) continue;
+        const within = rule.base ? child.slice(rule.base.length + 1) : child;
+        if (rule.regex.test(within)) ignored = !rule.negate;
+      }
+      return ignored;
+    };
+    for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.name === ".git") continue;
+      const isDir = entry.isDirectory();
+      if (isIgnored(child, isDir)) continue;
+      if (isDir) visit(child, rules);
+      else output.push(child);
+    }
+  };
+  visit("", []);
+  return output;
+}
+
+const isGitInternal =(file) => file === ".git" || file.startsWith(".git/");
 
 // Decides what to copy: { files, skipped: { git, generated, excluded }, notGit }.
 function planCopy(projectDir, options = {}) {
   const root = path.resolve(projectDir);
-  const { paths, globs } = generatedByProject(root, options);
+  const { paths, globs } = options.all ? { paths: new Map(), globs: [] } : generatedByProject(root, options);
 
   const everything = [];
   walk(root, "", everything);
-  const listed = options.useGit === false ? null : gitFileList(root);
+  let listed = null;
+  if (!options.all) {
+    listed = options.useGit === false ? null : gitFileList(root);
+    if (!listed) {
+      listed = ignoreAwareWalk(root);
+    }
+  }
   const candidates = listed || everything;
 
   const globMatches = new Map();
@@ -217,7 +319,7 @@ function planCopy(projectDir, options = {}) {
   const files = [];
   const skipped = { git: [], generated: [], excluded: [] };
   for (const file of candidates) {
-    if (!options.withGit && isGitInternal(file)) continue;
+    if (!options.withGit && !options.all && isGitInternal(file)) continue;
     const reason = reasonFor(file);
     if (reason === "--exclude") skipped.excluded.push(file);
     else if (reason) skipped.generated.push({ file, reason });
@@ -233,7 +335,7 @@ function planCopy(projectDir, options = {}) {
     }
   }
 
-  return { files: files.sort(), skipped, notGit: !listed };
+  return { files: files.sort(), skipped };
 }
 
 function copyFiles(projectDir, destination, files) {
@@ -248,11 +350,19 @@ function copyFiles(projectDir, destination, files) {
     } catch {
       continue; // tracked by git but deleted in the working tree
     }
+    fs.mkdirSync(path.dirname(to), { recursive: true });
     if (stat.isSymbolicLink()) {
-      symlinks += 1;
+      try {
+        const target = fs.readlinkSync(from);
+        const pointsAtFolder = fs.statSync(from, { throwIfNoEntry: false })?.isDirectory();
+        fs.rmSync(to, { force: true });
+        fs.symlinkSync(target, to, pointsAtFolder ? "junction" : "file");
+        copied += 1;
+      } catch {
+        symlinks += 1; // not allowed here (Windows without developer mode): reported, not fatal
+      }
       continue;
     }
-    fs.mkdirSync(path.dirname(to), { recursive: true });
     if (stat.isDirectory()) {
       // A submodule or nested repository: copied whole, minus its own .git.
       fs.cpSync(from, to, { recursive: true, filter: (source) => path.basename(source) !== ".git" });
@@ -265,13 +375,14 @@ function copyFiles(projectDir, destination, files) {
 }
 
 function parseArgs(argv) {
-  const options = { dryRun: false, force: false, withGit: false, exclude: [] };
+  const options = { dryRun: false, force: false, withGit: false, all: false, exclude: [] };
   const positional = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--force") options.force = true;
     else if (arg === "--with-git") options.withGit = true;
+    else if (arg === "--all") options.all = true;
     else if (arg === "--exclude") {
       i += 1;
       if (!argv[i]) throw new Error("--exclude needs a glob.");
@@ -295,8 +406,23 @@ async function runCopy(argv) {
   const source = path.resolve(positional.length === 2 ? positional[0] : ".");
   const destination = path.resolve(positional[positional.length - 1]);
 
-  if (!fs.existsSync(source) || !fs.statSync(source).isDirectory()) {
-    throw new Error(`Source is not a folder: ${source}`);
+  if (!fs.existsSync(source)) {
+    throw new Error(`Source does not exist: ${source}`);
+  }
+  if (fs.statSync(source).isFile()) {
+    const intoFolder = fs.existsSync(destination) && fs.statSync(destination).isDirectory();
+    const target = intoFolder ? path.join(destination, path.basename(source)) : destination;
+    if (target === source) throw new Error("The destination is the source file.");
+    if (!options.dryRun) {
+      if (fs.existsSync(target) && !options.force) throw new Error(`${target} exists. Use --force to overwrite it.`);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(source, target);
+    }
+    console.log(`${options.dryRun ? "Would copy" : "Copied"} ${source} to ${target}`);
+    return;
+  }
+  if (!fs.statSync(source).isDirectory()) {
+    throw new Error(`Source is not a file or folder: ${source}`);
   }
   if (destination === source || isInside(source, destination)) {
     throw new Error(`The destination ${destination} is the source project or inside it.`);
@@ -308,10 +434,7 @@ async function runCopy(argv) {
     throw new Error(`${destination} is not empty. Use --force to copy into it anyway.`);
   }
 
-  const plan = planCopy(source, { exclude: options.exclude, withGit: options.withGit });
-  if (plan.notGit) {
-    console.log("Not a git repository (or git is missing): .gitignore was not applied.");
-  }
+  const plan = planCopy(source, { exclude: options.exclude, withGit: options.withGit, all: options.all });
 
   const { git, generated, excluded } = plan.skipped;
   if (options.dryRun) {

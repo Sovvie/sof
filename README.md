@@ -348,7 +348,9 @@ sof run copy Games/UntitledHarvest D:/Backups/UH  # another project
 sof run copy ../copy --dry-run                    # list what would be copied and skipped
 ```
 
-Copies a project without what can be recreated there: files ignored by git (every `.gitignore`, `.git/info/exclude`, your global ignore), packages sof installed (each `<path>/<alias>` from `[[dependencies]]` and `sof.lock`), and whatever installed add-ons declare as generated, such as the files `[[affine.sync]]` writes. The `.git` folder is left out too (`--with-git` keeps it). `--exclude <glob>` skips more, `--force` copies into a folder that is not empty. Run `sof run install` in the copy to get the packages back.
+Copies a project without what can be recreated there: files ignored by git (every `.gitignore`, `.git/info/exclude`, your global ignore), packages sof installed (each `<path>/<alias>` from `[[dependencies]]` and `sof.lock`), and whatever installed add-ons declare as generated, such as the files `[[affine.sync]]` writes. The `.git` folder is left out too (`--with-git` keeps it). `--exclude <glob>` skips more, `--force` copies into a folder that is not empty. `--all` copies everything, ignored and generated files and `.git` included.
+
+It works on any folder or file, not only sof projects: outside a git repository the `.gitignore` files in the folder are read directly, a single file is copied as it is (into the destination if that is a folder), and symlinks are recreated (where the OS allows it; the summary counts any it could not). Run `sof run install` in the copy to get the packages back.
 
 An add-on says what it generates in its `sof-addon.json`, as data, so sandboxed add-ons are covered too:
 
