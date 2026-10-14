@@ -340,6 +340,25 @@ sof picks the release file for your platform by name (`windows-x86_64`, `win64`,
 - **Never on its own.** No install, update or other sof command runs a script.
 - **Not without a person.** Without a terminal (CI, an AI agent) a script that isn't trusted is refused, and trusting one needs a terminal. For a CI job you control, `SOF_TRUST_SCRIPTS=1` skips the check.
 
+## Copying a project
+
+```bash
+sof run copy ../UntitledHarvest-copy              # the project in the current folder
+sof run copy Games/UntitledHarvest D:/Backups/UH  # another project
+sof run copy ../copy --dry-run                    # list what would be copied and skipped
+```
+
+Copies a project without what can be recreated there: files ignored by git (every `.gitignore`, `.git/info/exclude`, your global ignore), packages sof installed (each `<path>/<alias>` from `[[dependencies]]` and `sof.lock`), and whatever installed add-ons declare as generated, such as the files `[[affine.sync]]` writes. The `.git` folder is left out too (`--with-git` keeps it). `--exclude <glob>` skips more, `--force` copies into a folder that is not empty. Run `sof run install` in the copy to get the packages back.
+
+An add-on says what it generates in its `sof-addon.json`, as data, so sandboxed add-ons are covered too:
+
+```json
+"generated": ["affine.sync.output"],
+"generatedPaths": ["affine/cache/**"]
+```
+
+`generated` lists keys of `sof.toml` whose values are paths (dotted, going through arrays of tables); `generatedPaths` lists globs relative to the project. Paths outside the project are ignored.
+
 ## Add-ons
 
 ```bash

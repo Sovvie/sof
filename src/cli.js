@@ -25,7 +25,8 @@ COMMANDS:
   run package yank|unyank <scope/name> <version>  Hide a version from new installs
   run tools install|add|remove|update|list|...    Tools (rojo, selene, ...) pinned per project in sof.toml
   run script <name>|list|trust|untrust            Project commands from [scripts] in sof.toml (no shell; trusted first)
-  run addon list|add|remove|update|publish        Optional features (docs, video, uploader, ...)
+  run copy <destination>                          Copy a project without ignored or generated files
+  run addon list|add|remove|update|publish       Optional features (docs, video, uploader, ...)
   run self update                                 Update sof itself
 
 OPTIONS:
@@ -80,6 +81,7 @@ const BUILT_IN = {
   account: () => require("./commands/account").runAccount,
   tools: () => require("./commands/tools").runTools,
   script: () => require("./commands/script").runScript,
+  copy: () => require("./commands/copy").runCopy,
   addon: () => require("./commands/addon").runAddon,
   self: () => require("./commands/self").runSelf,
 };
