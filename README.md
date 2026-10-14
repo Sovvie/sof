@@ -24,7 +24,7 @@ Update with `sof run self update`. Uninstall by deleting `~/.sof` and removing `
 
 ## Packages
 
-Packages come from the sof registry at <https://sov.gg/sof-index> (point `SOF_REGISTRY_URL` somewhere else to use another one). Installing and searching need no account and no token. A package the registry doesn't have is looked up on [Wally](https://wally.run) instead, so a Wally dependency such as `evaera/promise@^4.0.0` is written and installed the same way.
+Packages come from the sof registry at <https://sof.sov.gg> (point `SOF_REGISTRY_URL` somewhere else to use another one). Installing and searching need no account and no token. A package the registry doesn't have is looked up on [Wally](https://wally.run) instead, so a Wally dependency such as `evaera/promise@^4.0.0` is written and installed the same way.
 
 In a game repo, list dependencies in `sof.toml`:
 
@@ -110,7 +110,7 @@ Add-ons without `"sandbox": true` still run inside sof's own process, trusted li
 
 | Variable | Purpose |
 | --- | --- |
-| `SOF_REGISTRY_URL` | Registry to use instead of `https://sov.gg/sof-index` |
+| `SOF_REGISTRY_URL` | Registry to use instead of `https://sof.sov.gg` |
 | `SOF_REGISTRY_TOKEN` | Registry token for CI (see above) |
 | `SOF_AI_GUARD` | Set to `off` so sof does not add its deny rules for `~/.sof` to AI tools' settings |
 | `SOF_ACCOUNT_PROTECTION` | Set to `off` to keep the sov.gg refresh token in `account.json` instead of the OS secret store |
@@ -202,7 +202,7 @@ Update with `sof run self update`. Uninstall by deleting `~/.sof` and removing `
 
 ## Packages
 
-Packages come from the sof registry at <https://sov.gg/sof-index> (point `SOF_REGISTRY_URL` somewhere else to use another one). Installing and searching need no account and no token. A package the registry doesn't have is looked up on [Wally](https://wally.run) instead, so a Wally dependency such as `evaera/promise@^4.0.0` is written and installed the same way.
+Packages come from the sof registry at <https://sof.sov.gg> (point `SOF_REGISTRY_URL` somewhere else to use another one). Installing and searching need no account and no token. A package the registry doesn't have is looked up on [Wally](https://wally.run) instead, so a Wally dependency such as `evaera/promise@^4.0.0` is written and installed the same way.
 
 In a game repo, list dependencies in `sof.toml`:
 
@@ -287,7 +287,7 @@ Add-ons without `"sandbox": true` still run inside sof's own process, trusted li
 
 | Variable | Purpose |
 | --- | --- |
-| `SOF_REGISTRY_URL` | Registry to use instead of `https://sov.gg/sof-index` |
+| `SOF_REGISTRY_URL` | Registry to use instead of `https://sof.sov.gg` |
 | `SOF_REGISTRY_TOKEN` | Registry token for CI (see above) |
 | `SOF_AI_GUARD` | Set to `off` so sof does not add its deny rules for `~/.sof` to AI tools' settings |
 | `SOF_ACCOUNT_PROTECTION` | Set to `off` to keep the sov.gg refresh token in `account.json` instead of the OS secret store |

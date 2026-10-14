@@ -106,7 +106,7 @@ test("grants: asked once on a terminal, never silently, refused for hosts core d
   // Already granted: no question, even without a terminal.
   assert.deepEqual(await grants.ensureGranted(descriptor, { interactive: false }), [BRIDGE]);
   // A new version that asks for more hosts is asked again.
-  const wider = { name: "demo", account: { hosts: [BRIDGE, "sov.gg"] } };
+  const wider = { name: "demo", account: { hosts: [BRIDGE, "sof.sov.gg"] } };
   await assert.rejects(grants.ensureGranted(wider, { interactive: false }), /needs permission/);
   await assert.rejects(grants.ensureGranted({ name: "x", account: { hosts: ["evil.example"] } }), /does not allow/);
   assert.equal(grants.revoke("demo"), true);

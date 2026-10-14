@@ -82,7 +82,7 @@ COMMANDS:
 ${ACCOUNT_HELP_TEXT}
 
 ENVIRONMENT:
-  SOF_REGISTRY_URL                    Registry to use (default: https://sov.gg/sof-index)
+  SOF_REGISTRY_URL                    Registry to use (default: https://sof.sov.gg)
   SOF_REGISTRY_TOKEN                  Registry token for CI (instead of "package login")
 `;
 

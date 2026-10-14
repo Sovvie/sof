@@ -1,7 +1,7 @@
 "use strict";
 
 // The sof package registry (a Wally-style server). Override with SOF_REGISTRY_URL.
-const SOF_REGISTRY_URL = (process.env.SOF_REGISTRY_URL || "https://sov.gg/sof-index").replace(/\/+$/, "");
+const SOF_REGISTRY_URL = (process.env.SOF_REGISTRY_URL || "https://sof.sov.gg").replace(/\/+$/, "");
 
 const WALLY_INDEX_REPO = "UpliftGames/wally-index";
 const WALLY_INDEX_BRANCH = "main";
