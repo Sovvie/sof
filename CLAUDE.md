@@ -7,7 +7,7 @@ Guidance for AI agents working in this repo (the sof CLI).
 The owner wants shipped work, not local work. When a change to sof is done and tested, do **all** of this without waiting to be asked again. "Release it" / "ship it" / "push it" all mean the full sequence:
 
 1. `npm test` must pass.
-2. Bump the version in `package.json` and `package-lock.json` with `npm version <patch|minor|major> --no-git-tag-version` (patch for fixes, minor for features, major for breaking changes).
+2. Bump the version in `package.json` and `package-lock.json` with `npm version <patch|minor|major> --no-git-tag-version` Default to **patch** (`X.X.N`) for everything: fixes, and also new commands, options and add-on hooks like `sof run copy`. Only bump minor or major when the owner says so for that change (`npm version minor` / `major`); never pick them on your own judgment, even for a feature or a breaking change, and ask instead if a change looks like it needs one.
 3. Commit only the files that belong to the change, then tag it `v<version>`. The working tree often holds the owner's unrelated uncommitted work (for example `addons/` changes or README sections for other features): never `git add -A` or `git commit -a`. Stage files by name, and use `git apply --cached` with a trimmed patch when one file mixes your hunks with theirs.
 4. Push the branch and the tag: `git push origin main v<version>`.
 5. Build the release zip: `npm run release` (writes `dist/sof-<version>.zip`).
