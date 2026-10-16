@@ -1,0 +1,13 @@
+{
+  "name": "bundle",
+  "version": "1.0.0",
+  "command": "bundle",
+  "entry": "src/commands/bundle.js",
+  "export": "run",
+  "usage": "bundle [folder] [-o <file>] [--include <glob>] [--exclude <glob>] [--list]",
+  "description": "Zip or tar.gz a project (or folder) from include/exclude rules",
+  "sandbox": true,
+  "env": [
+    "SOURCE_DATE_EPOCH"
+  ]
+}

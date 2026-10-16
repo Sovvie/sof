@@ -16,6 +16,10 @@ DESCRIPTION:
 
 OPTIONS:
   --force                         Reinstall every package and re-run the tool install
+  --frozen                        For CI: fail unless sof.lock and sof.tools.lock already pin everything
+                                  (packages: no lockfile changes; tools: a checksum for each one)
+  --offline                       Download nothing: use what is installed or kept in ~/.sof/cache
+                                  (SOF_OFFLINE=1 does the same). Run an install online first to fill the cache.
   -h, --help                      Show this help message
 `;
 
@@ -23,6 +27,8 @@ function parseArgs(argv) {
   const output = {
     configPath: null,
     force: false,
+    frozen: false,
+    offline: false,
     help: false,
   };
 
@@ -35,6 +41,16 @@ function parseArgs(argv) {
 
     if (arg === "--force") {
       output.force = true;
+      continue;
+    }
+
+    if (arg === "--frozen") {
+      output.frozen = true;
+      continue;
+    }
+
+    if (arg === "--offline") {
+      output.offline = true;
       continue;
     }
 
@@ -60,7 +76,15 @@ async function runInstall(argv) {
     process.exit(0);
   }
 
-  const packageArgs = [...(args.force ? ["--force"] : []), ...(args.configPath ? [args.configPath] : [])];
+  if (args.offline) {
+    require("../cache").setOffline();
+  }
+
+  const packageArgs = [
+    ...(args.force ? ["--force"] : []),
+    ...(args.frozen ? ["--frozen"] : []),
+    ...(args.configPath ? [args.configPath] : []),
+  ];
   try {
     await runPackageInstall(packageArgs);
   } catch (err) {
@@ -71,7 +95,7 @@ async function runInstall(argv) {
     }
   }
 
-  await runToolsInstall(args.configPath, { force: args.force });
+  await runToolsInstall(args.configPath, { force: args.force, locked: args.frozen });
 }
 
 module.exports = {

@@ -15,6 +15,7 @@ const { createBroker } = require("../account/broker");
 const { ensureGranted, requestedHosts } = require("../account/grants");
 
 const RUNNER = path.join(__dirname, "sandbox-runner.js");
+const KIT = path.join(__dirname, "kit.js"); // builtins only; the runner loads it for argument parsing and printing
 
 // Environment a sandboxed add-on gets: terminal/locale basics, plus what its manifest lists in "env".
 const BASE_ENV = ["SystemRoot", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "TERM", "COLORTERM", "FORCE_COLOR", "NO_COLOR", "CI"];
@@ -75,7 +76,9 @@ function sandboxEnv(descriptor) {
 }
 
 // fetchImpl lets tests stand in for the network behind the account broker.
-async function runSandboxed(addon, argv, { cwd = process.cwd(), fetchImpl } = {}) {
+// callAddon(command, argv) and config() answer the add-on's host.addons.run and host.config; nested
+// runs return the exit code to their caller instead of setting process.exitCode.
+async function runSandboxed(addon, argv, { cwd = process.cwd(), fetchImpl, nested = false, callAddon, config } = {}) {
   if (!supportsPermissionFlag()) {
     throw new Error(
       `Add-on "${addon.name}" runs in a sandbox, which needs Node 22.13 or newer (this is Node ${process.versions.node}).`
@@ -113,6 +116,7 @@ async function runSandboxed(addon, argv, { cwd = process.cwd(), fetchImpl } = {}
   const execArgv = [
     "--permission",
     `--allow-fs-read=${RUNNER}`,
+    `--allow-fs-read=${KIT}`,
     `--allow-fs-read=${real(addon.directory)}`,
     ...folders.flatMap((folder) => [`--allow-fs-read=${folder}`, `--allow-fs-write=${folder}`]),
   ];
@@ -128,6 +132,13 @@ async function runSandboxed(addon, argv, { cwd = process.cwd(), fetchImpl } = {}
   const handlers = {
     "account.request": async (args) => (await getBroker()).request(args),
     "account.whoami": async () => (await getBroker()).whoami(),
+    "config.get": async () => (config ? config() : {}),
+    "addons.run": async (args) => {
+      if (!callAddon) {
+        throw new Error("This add-on can't call other add-ons here.");
+      }
+      return callAddon(args && args.command, args && args.argv);
+    },
   };
 
   child.on("message", async (message) => {
@@ -161,9 +172,10 @@ async function runSandboxed(addon, argv, { cwd = process.cwd(), fetchImpl } = {}
     child.once("error", reject);
     child.once("exit", (exitCode, signal) => resolve(signal ? 1 : exitCode));
   });
-  if (code) {
+  if (code && !nested) {
     process.exitCode = code;
   }
+  return code || 0;
 }
 
 module.exports = { runSandboxed, supportsPermissionFlag, workFolders };

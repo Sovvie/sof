@@ -644,7 +644,7 @@ test("end of input at the question (Ctrl-D, a closed pipe) is a no, not a silent
 
 test("scripts never run just because a project is installed or sof starts", () => {
   // sof has no hook anywhere that starts a script: the only way in is `sof run script <name>`.
-  const sources = ["src/cli.js", "src/commands/install.js", "src/commands/tools.js", "src/commands/package.js", "src/commands/self.js"].map((file) =>
+  const sources = ["src/cli.js", "src/commands/install.js", "src/commands/tools.js", "src/commands/package.js", "src/commands/self.js", "src/commands/doctor.js", "src/doctor/checks.js", "src/addons/run.js", "src/commands/addon.js", "src/commands/cache.js"].map((file) =>
     fs.readFileSync(path.join(__dirname, "..", file), "utf8")
   );
   for (const source of sources) {

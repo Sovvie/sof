@@ -47,6 +47,7 @@ COMMANDS:
     sof run package install [path/to/sof.toml]
     OPTIONS:
       --frozen                        Error when sof.lock is missing/outdated
+      --offline                       Download nothing: use the cache in ~/.sof/cache (SOF_OFFLINE=1 does the same)
       --force                         Reinstall every package
       -h, --help                      Show install command help
 
@@ -98,6 +99,7 @@ DESCRIPTION:
 
 OPTIONS:
   --frozen                        Error when sof.lock is missing/outdated
+  --offline                       Download nothing: use the cache in ~/.sof/cache (SOF_OFFLINE=1 does the same)
   --force                         Reinstall every package, ignoring what is already installed
   -h, --help                      Show this help message
 `;
@@ -188,6 +190,11 @@ function parseInstallArgs(argv) {
 
     if (arg === "--force") {
       output.force = true;
+      continue;
+    }
+
+    if (arg === "--offline") {
+      output.offline = true;
       continue;
     }
 
@@ -771,6 +778,10 @@ async function runInstall(argv) {
   if (args.help) {
     console.log(INSTALL_HELP_TEXT);
     process.exit(0);
+  }
+
+  if (args.offline) {
+    require("../cache").setOffline();
   }
 
   const config = readPackageInstallConfig(args.configPath);

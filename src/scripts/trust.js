@@ -39,9 +39,12 @@ function writeTrust(projects) {
 }
 
 // commands: [argv...]; tools: { alias: "owner/repo@version" } for every tool the commands run.
-function definitionHash(commands, tools) {
+// shape: how scripts are put together (dependencies, parallel); left out for a plain script so
+// a yes given before scripts could depend on each other still holds.
+function definitionHash(commands, tools, shape) {
   const sortedTools = Object.fromEntries(Object.entries(tools).sort(([a], [b]) => a.localeCompare(b)));
-  return crypto.createHash("sha256").update(JSON.stringify({ commands, tools: sortedTools })).digest("hex");
+  const body = shape === undefined ? { commands, tools: sortedTools } : { commands, tools: sortedTools, shape };
+  return crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex");
 }
 
 // "trusted", "changed" (trusted once, but the script or its tools differ now) or "untrusted".

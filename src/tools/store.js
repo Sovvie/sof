@@ -11,9 +11,11 @@ const os = require("os");
 const path = require("path");
 
 const { sofHome } = require("../addons/store");
+const { isOffline, readToolAsset, writeToolAsset } = require("../cache");
 const { pickAsset } = require("./assets");
 const { extractExecutable } = require("./extract");
 const { downloadAsset, findRelease } = require("./github");
+const { currentPlatform } = require("./lock");
 const { parseToolSpecifier } = require("./spec");
 
 const EXE_SUFFIX = process.platform === "win32" ? ".exe" : "";
@@ -184,21 +186,43 @@ async function installTool(specifier, { alias, force = false, expected = null, l
     return { spec, skipped: false, record: null };
   }
 
-  const release = await findRelease(spec.owner, spec.repo, spec.version);
-  const { asset } = pickAsset(release.assets, { repo: spec.repo, label });
+  // A release asset that was downloaded before is used when offline, or when the lock says it is
+  // exactly that file; otherwise it comes from GitHub (and is kept for next time).
+  const platform = currentPlatform();
+  const cached = readToolAsset(spec, platform);
+  const cachedMatchesLock = cached && expected && cached.asset === expected.asset && cached.sha256 === expected.sha256;
+  let buffer;
+  let record;
+  if (cached && (isOffline() || cachedMatchesLock)) {
+    buffer = cached.buffer;
+    record = { asset: cached.asset, sha256: cached.sha256 };
+    log(`  Using the cached ${label} (${cached.asset})`);
+  } else {
+    if (isOffline()) {
+      throw new Error(`${label} isn't in the offline cache. Install it once without --offline (or SOF_OFFLINE=1).`);
+    }
+    const release = await findRelease(spec.owner, spec.repo, spec.version);
+    const { asset } = pickAsset(release.assets, { repo: spec.repo, label });
 
-  log(`  Downloading ${label} (${asset.name})...`);
-  const buffer = await downloadAsset(asset);
-  const record = { asset: asset.name, sha256: crypto.createHash("sha256").update(buffer).digest("hex") };
+    log(`  Downloading ${label} (${asset.name})...`);
+    buffer = await downloadAsset(asset);
+    record = { asset: asset.name, sha256: crypto.createHash("sha256").update(buffer).digest("hex") };
+  }
+
   if (expected && (expected.asset !== record.asset || expected.sha256 !== record.sha256)) {
     throw new Error(
-      `${label}: ${asset.name} doesn't match sof.tools.lock (locked ${expected.asset} ${expected.sha256.slice(0, 12)}..., ` +
+      `${label}: ${record.asset} doesn't match sof.tools.lock (locked ${expected.asset} ${expected.sha256.slice(0, 12)}..., ` +
         `got ${record.sha256.slice(0, 12)}...). The release changed since it was locked; nothing was installed.`
     );
   }
+  if (!cached || cached.sha256 !== record.sha256) {
+    writeToolAsset(spec, platform, record.asset, buffer);
+  }
 
   const wantedNames = [spec.repo.toLowerCase(), alias && alias.toLowerCase()].filter(Boolean);
-  const data = await extractExecutable(buffer, asset.name, wantedNames);
+  const data = await extractExecutable(buffer, record.asset, wantedNames);
+  // The sha256 of the program itself, so `sof run tools verify` can tell if it was changed afterwards.
+  record.exe = crypto.createHash("sha256").update(data).digest("hex");
 
   placeExecutable(spec, data, { record });
   log(`  ✓ ${alias || spec.repo} ${spec.version}`);

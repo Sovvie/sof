@@ -6,7 +6,8 @@ const path = require("path");
 const { ask } = require("../account/grants");
 const { safeText } = require("../safe-text");
 const { findScript, findScriptsTable } = require("../scripts/parse");
-const { resolveScript, runSteps } = require("../scripts/runner");
+const { buildPlan, outline, planCommands, planShape } = require("../scripts/plan");
+const { resolveScript, runPlan } = require("../scripts/runner");
 const { definitionHash, trust, trustStatus, untrust } = require("../scripts/trust");
 
 const HELP_TEXT = `
@@ -14,6 +15,7 @@ sof run script - Run the project's own commands from [scripts] in sof.toml
 
 USAGE:
   sof run script <name> [arguments...]    Run a script (the arguments go on the end of its last command)
+  sof run script --watch <name> [args]    Run it, then again whenever files matching its watch globs change
   sof run script list                     Show the scripts and whether you have trusted them
   sof run script trust [name...]          Say yes to scripts (needs a terminal); all of them if none is named
   sof run script untrust [name...]        Take that back
@@ -22,6 +24,11 @@ IN sof.toml:
   [scripts]
   build = "rojo build -o game.rbxl"
   check = ["stylua --check src", "selene src"]      # in order, stopping at the first that fails
+
+  # A table adds pipelines. depends run first (once each, even if several scripts need them), then run.
+  lint  = { run = "selene src", watch = ["src/**"] }
+  test  = "lune run tests"
+  ci    = { depends = ["lint", "test"], parallel = true, run = "rojo build -o game.rbxl", description = "what CI runs" }
 
 SAFETY:
   - A script is a list of commands started directly, with no shell: no pipes, redirects, chaining
@@ -35,8 +42,11 @@ SAFETY:
   - sof never runs a script by itself: not on install, not on update.
   - Without a terminal (CI, an AI agent) a script that isn't trusted is refused, and so is
     trusting one. For a CI job you control, SOF_TRUST_SCRIPTS=1 skips the check.
-  - A script is limited in size (25 commands, 1000 characters each, 3000 in all) so the whole
-    of it fits on the screen when you are asked.
+  - A script is limited in size (25 commands, 1000 characters each, 3000 in all, counting the scripts
+    it depends on) so the whole of it fits on the screen when you are asked. Your yes covers the
+    whole pipeline: change a script anywhere in it and sof asks again.
+  - --watch only polls the files matching "watch" globs (relative to sof.toml). It re-reads sof.toml
+    before every run and stops if the pipeline is no longer one you trusted. Stop it with Ctrl+C.
 `;
 
 function displayPath(targetPath) {
@@ -52,21 +62,27 @@ function defaultInteractive() {
   return Boolean(process.stdin.isTTY && process.stderr.isTTY);
 }
 
-// Everything that has to be true for a script to run, worked out before anything runs.
+// Everything that has to be true for a script to run, worked out before anything runs: the script
+// and the scripts it depends on, every command resolved to an exact program, and the trust state of
+// the whole.
 function prepare(found, name) {
-  const problem = found.problems.find((entry) => entry.name === name);
-  if (problem) {
-    throw new Error(problem.message);
-  }
+  const plan = buildPlan(found, name);
+  const tools = {};
+  const nodes = plan.nodes.map((node) => {
+    const resolved = resolveScript({ name: node.name, commands: node.commands }, found.directory);
+    Object.assign(tools, resolved.tools);
+    return { ...node, steps: resolved.steps };
+  });
 
-  const script = found.scripts[name];
-  if (!script) {
-    throw new Error(`There is no script "${name}" in ${found.file}.`);
-  }
-
-  const resolved = resolveScript(script, found.directory);
-  const hash = definitionHash(script.commands.map((command) => command.argv), resolved.tools);
-  return { script, resolved, hash, status: trustStatus(found.directory, name, hash) };
+  const hash = definitionHash(planCommands(plan).map((command) => command.argv), tools, planShape(plan));
+  return {
+    script: found.scripts[name],
+    plan: { ...plan, nodes },
+    outline: outline(plan),
+    resolved: { tools },
+    hash,
+    status: trustStatus(found.directory, name, hash),
+  };
 }
 
 function headline(found, name, prepared) {
@@ -77,14 +93,23 @@ function describeForPrompt(found, name, prepared) {
   const tools = Object.entries(prepared.resolved.tools).map(([alias, specifier]) => `${alias} = ${specifier}`);
   return [
     `${headline(found, name, prepared)}. It would run:`,
-    ...prepared.script.commands.map((command, index) => `  ${index + 1}. ${command.text}`),
+    ...prepared.outline,
     tools.length > 0 ? `with these tools: ${tools.join(", ")}` : "",
     "A script runs programs on this computer with your permissions: say yes only to ones you have read.",
   ].filter(Boolean);
 }
 
 async function runNamed(argv, deps) {
-  const [name, ...rest] = argv;
+  let args = argv;
+  let watch = false;
+  if (args[0] === "--watch") {
+    watch = true;
+    args = args.slice(1);
+  }
+  const [name, ...rest] = args;
+  if (!name || name.startsWith("-")) {
+    throw new Error("Name the script to run: sof run script [--watch] <name> [arguments...]");
+  }
   // `sof run script build -- --flag`: a lone leading -- only separates, like in npm.
   const extraArguments = rest[0] === "--" ? rest.slice(1) : rest;
   const found = findScript(name);
@@ -93,6 +118,13 @@ async function runNamed(argv, deps) {
   }
 
   const prepared = prepare(found, name);
+  if (extraArguments.length > 0 && prepared.plan.nodes[prepared.plan.nodes.length - 1].steps.length === 0) {
+    throw new Error(`The script "${name}" has no commands of its own, so there is nothing to pass the arguments to.`);
+  }
+  if (watch && prepared.plan.watch.length === 0) {
+    throw new Error(`The script "${name}" has no watch globs: add watch = ["src/**"] to it (or to a script it depends on) to use --watch.`);
+  }
+
   if (prepared.status !== "trusted" && process.env.SOF_TRUST_SCRIPTS !== "1") {
     if (!deps.interactive()) {
       // The way around this for CI is in the README and the help, not here: this text is what an
@@ -111,7 +143,57 @@ async function runNamed(argv, deps) {
     trust(found.directory, name, prepared.hash);
   }
 
-  process.exitCode = await runSteps(prepared.resolved.steps, { directory: found.directory, extraArguments });
+  if (watch) {
+    await watchLoop(found, name, prepared, extraArguments, deps);
+    return;
+  }
+
+  process.exitCode = await runPlan(prepared.plan, { directory: found.directory, extraArguments });
+}
+
+// Runs the pipeline, then again each time a watched file changes. sof.toml is read again before
+// every run: if the pipeline is no longer the one that was trusted (a git pull edited it), it stops.
+async function watchLoop(found, name, first, extraArguments, deps) {
+  const { snapshot, waitForChange } = deps.watch || require("../scripts/watch");
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+  };
+  process.on("SIGINT", stop);
+
+  try {
+    let prepared = first;
+    let current = found;
+    for (;;) {
+      const before = snapshot(prepared.plan.watch, current.directory);
+      const code = await runPlan(prepared.plan, { directory: current.directory, extraArguments });
+      if (stopped) {
+        break;
+      }
+      console.error(code === 0 ? "sof: done. Watching for changes (Ctrl+C to stop)..." : `sof: failed (exit ${code}). Watching for changes (Ctrl+C to stop)...`);
+
+      const change = await waitForChange(prepared.plan.watch, current.directory, before, {
+        shouldStop: () => stopped,
+        ...(deps.watchTiming || {}),
+      });
+      if (!change) {
+        break;
+      }
+
+      const shown = change.files.slice(0, 3).map((file) => safeText(file)).join(", ");
+      console.error(`sof: ${shown}${change.files.length > 3 ? ` and ${change.files.length - 3} more` : ""} changed.`);
+
+      current = findScript(name, current.directory) || current;
+      prepared = prepare(current, name);
+      if (prepared.hash !== first.hash && process.env.SOF_TRUST_SCRIPTS !== "1") {
+        console.error(`sof: "${name}" is no longer the pipeline you trusted, so watching stopped. Read it with: sof run script list`);
+        process.exitCode = 1;
+        return;
+      }
+    }
+  } finally {
+    process.off("SIGINT", stop);
+  }
 }
 
 async function runTrust(names, deps) {
@@ -187,9 +269,12 @@ function runList() {
     let status;
     try {
       const prepared = prepare(found, name);
-      const first = summarize(prepared.script.commands[0].text);
-      const more = prepared.script.commands.length > 1 ? ` (+${prepared.script.commands.length - 1} more)` : "";
-      status = `${{ trusted: "trusted", changed: "changed since trusted", untrusted: "not trusted" }[prepared.status].padEnd(21)}  ${first}${more}`;
+      const own = prepared.script.commands;
+      const first = own.length > 0 ? summarize(own[0].text) : `runs ${prepared.script.depends.join(", ")}`;
+      const more = own.length > 1 ? ` (+${own.length - 1} more)` : "";
+      const after = own.length > 0 && prepared.script.depends.length > 0 ? ` after ${prepared.script.depends.join(", ")}${prepared.script.parallel ? " (at once)" : ""}` : "";
+      const note = prepared.script.description ? `  - ${prepared.script.description}` : "";
+      status = `${{ trusted: "trusted", changed: "changed since trusted", untrusted: "not trusted" }[prepared.status].padEnd(21)}  ${first}${more}${after}${note}`;
     } catch (err) {
       status = `can't run: ${err.message.replace(/^script "[^"]*":? ?/, "")}`;
     }
@@ -199,7 +284,7 @@ function runList() {
 }
 
 async function runScript(argv, deps = {}) {
-  const resolvedDeps = { ask: deps.ask || ask, interactive: deps.interactive || defaultInteractive };
+  const resolvedDeps = { ask: deps.ask || ask, interactive: deps.interactive || defaultInteractive, watch: deps.watch, watchTiming: deps.watchTiming };
   const [first, ...rest] = argv;
 
   if (!first || first === "-h" || first === "--help" || first === "help") {

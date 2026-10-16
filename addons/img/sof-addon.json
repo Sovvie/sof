@@ -1,0 +1,10 @@
+{
+  "name": "img",
+  "version": "1.0.0",
+  "command": "img",
+  "entry": "src/commands/img.js",
+  "export": "run",
+  "usage": "img <input...> [--out <dir>] [--format png|jpeg|webp|avif] [--quality 1-100] [--width px] [--height px] [--dry-run]",
+  "description": "Batch optimize, resize and convert images",
+  "sandbox": false
+}

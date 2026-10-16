@@ -143,15 +143,22 @@ function parseCommand(text, scriptName, position) {
   return { text: shown, argv };
 }
 
-// value: a string (one command) or an array of strings (several, in order).
-function parseScript(name, value) {
+const TABLE_KEYS = new Set(["run", "depends", "parallel", "watch", "description"]);
+const MAX_DEPENDS = 20;
+const MAX_WATCH_GLOBS = 20;
+const MAX_GLOB_LENGTH = 200;
+const MAX_DESCRIPTION_LENGTH = 200;
+
+function checkName(name) {
   if (!SCRIPT_NAME_PATTERN.test(name)) {
     throw new Error(`script name "${name}" must start with a letter or number and use only letters, numbers, ".", "_", ":" and "-" (64 characters at most).`);
   }
   if (RESERVED_SCRIPT_NAMES.has(name.toLowerCase())) {
     throw new Error(`script name "${name}" is reserved: "sof run script ${name}" is a command of its own.`);
   }
+}
 
+function parseCommandList(name, value) {
   const list = typeof value === "string" ? [value] : value;
   if (!Array.isArray(list) || list.length === 0) {
     throw new Error(`script "${name}" must be a command (a string) or a non-empty array of commands.`);
@@ -164,8 +171,73 @@ function parseScript(name, value) {
   if (commands.reduce((total, command) => total + command.text.length, 0) > MAX_SCRIPT_LENGTH) {
     throw new Error(`script "${name}" is longer than ${MAX_SCRIPT_LENGTH} characters in all: split it up so it can be read in one go.`);
   }
+  return commands;
+}
 
-  return { name, commands };
+function stringList(name, key, value, { max, pattern, maxLength }) {
+  if (!Array.isArray(value) || value.length > max || value.some((entry) => typeof entry !== "string" || entry === "")) {
+    throw new Error(`script "${name}": "${key}" must be an array of at most ${max} non-empty strings.`);
+  }
+  for (const entry of value) {
+    if (entry.length > maxLength || HIDDEN_CHARACTER.test(entry) || (pattern && !pattern.test(entry))) {
+      throw new Error(`script "${name}": "${key}" has an entry that is too long, has an invisible character or isn't valid: ${JSON.stringify(entry.slice(0, 40))}.`);
+    }
+  }
+  return value.slice();
+}
+
+// A watch glob is relative to the sof.toml folder and stays inside it.
+function checkWatchGlob(name, glob) {
+  const normalized = glob.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized) || normalized.split("/").includes("..")) {
+    throw new Error(`script "${name}": watch glob ${JSON.stringify(glob)} must be relative and stay inside the project (no "..").`);
+  }
+}
+
+// value: a string (one command), an array of strings (several, in order), or a table:
+//   { run = "cmd" | ["cmd", ...], depends = ["other", ...], parallel = false, watch = ["src/**"], description = "..." }
+// `depends` scripts run first (each once per invocation; at the same time with parallel = true),
+// then `run`. `watch` globs are what `sof run script --watch` polls.
+function parseScript(name, value) {
+  checkName(name);
+
+  if (isPlainObject(value)) {
+    for (const key of Object.keys(value)) {
+      if (!TABLE_KEYS.has(key)) {
+        throw new Error(`script "${name}": unknown key "${key}" (allowed: ${[...TABLE_KEYS].join(", ")}).`);
+      }
+    }
+    if (value.run === undefined && value.depends === undefined) {
+      throw new Error(`script "${name}" needs "run" (commands) or "depends" (other scripts to run first).`);
+    }
+    if (value.parallel !== undefined && typeof value.parallel !== "boolean") {
+      throw new Error(`script "${name}": "parallel" must be true or false.`);
+    }
+    if (value.description !== undefined && (typeof value.description !== "string" || value.description.length > MAX_DESCRIPTION_LENGTH || HIDDEN_CHARACTER.test(value.description))) {
+      throw new Error(`script "${name}": "description" must be plain text of at most ${MAX_DESCRIPTION_LENGTH} characters.`);
+    }
+
+    const depends = value.depends === undefined ? [] : stringList(name, "depends", value.depends, { max: MAX_DEPENDS, pattern: SCRIPT_NAME_PATTERN, maxLength: 64 });
+    if (new Set(depends).size !== depends.length) {
+      throw new Error(`script "${name}": "depends" lists the same script twice.`);
+    }
+    if (depends.includes(name)) {
+      throw new Error(`script "${name}" depends on itself.`);
+    }
+    const watch = value.watch === undefined ? [] : stringList(name, "watch", value.watch, { max: MAX_WATCH_GLOBS, maxLength: MAX_GLOB_LENGTH });
+    watch.forEach((glob) => checkWatchGlob(name, glob));
+
+    return {
+      name,
+      commands: value.run === undefined ? [] : parseCommandList(name, value.run),
+      depends,
+      parallel: value.parallel === true,
+      watch,
+      description: value.description || "",
+    };
+  }
+
+  return { name, commands: parseCommandList(name, value), depends: [], parallel: false, watch: [], description: "" };
 }
 
 // Reads one sof.toml. { directory, names, scripts, problems }: names is every key under [scripts],
