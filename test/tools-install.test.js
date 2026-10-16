@@ -468,7 +468,11 @@ test("lock records checksums, later installs are held to them, --locked needs th
 
       // The release is swapped on the server after locking: a fresh machine must refuse it.
       // Retries: Windows (a virus scanner looking at the files just written) sometimes holds one for a moment.
-      fs.rmSync(path.join(process.env.SOF_HOME, "tools"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      // The download cache goes too: a cached copy that matches the lock is used as it is, so a fresh
+      // machine (no cache) is what meets the swapped release.
+      for (const folder of ["tools", path.join("cache", "tools")]) {
+        fs.rmSync(path.join(process.env.SOF_HOME, folder), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      }
       const spec = parseToolSpecifier("acme/widget@1.0.0");
       const swapped = await startGithub({ "acme/widget": [{ tag: "v1.0.0", content: "TWO" }] });
       try {
