@@ -128,6 +128,8 @@ Add-ons without `"sandbox": true` still run inside sof's own process, trusted li
 | `GITHUB_TOKEN` / `GH_TOKEN` | Raises GitHub's rate limit for tool downloads (sent to the GitHub API only) |
 | `SOF_GITHUB_API_URL` | GitHub API to read tool releases from instead of `https://api.github.com` (GitHub Enterprise, a mirror) |
 | `ROKIT_ROOT` | Where to look for tools Rokit already downloaded (default `~/.rokit`) |
+| `SOF_OFFLINE` | Set to `1` to download nothing: installs use what is installed or kept in `~/.sof/cache` (same as `--offline`) |
+| `SOF_REQUIRE_SANDBOX` | Set to `1` to refuse to run any add-on that doesn't declare `"sandbox": true` |
 | `SOF_TRUST_SCRIPTS` | Set to `1` in a CI job you control to run `[scripts]` without having trusted them first |
 | `SOF_WALLY_CLIENT_VERSION` | `Wally-Version` header sent when downloading from Wally (default `0.3.2`; Wally accepts 0.3.0 and newer) |
 
@@ -155,6 +157,7 @@ sof run tools import                  # bring in the tools of a rokit.toml / aft
 sof run tools x JohnnyMorganz/StyLua --check src    # run a tool once, without adding it to a project
 sof run tools which rojo              # the program "rojo" runs from this folder
 sof run tools doctor                  # check shims, PATH and tools that something else shadows
+sof run tools verify                  # installed tools vs sof.tools.lock, and unchanged since sof installed them
 ```
 
 Each version is downloaded once into `~/.sof/tools/<owner>/<repo>/<version>`. A small shim named after each tool goes in `~/.sof/bin` (the folder the `sof` command itself lives in, already on your PATH), and running `rojo` there starts the version pinned in the nearest `sof.toml`, looking from the current folder upwards; a nearer file wins only for the tools it lists. Two projects can pin different versions of the same tool with nothing to switch. `sof run tools setup` prepares the folder (the installer and `sof run self update` run it for you). On Windows the shim is a real `.exe`, built once with the C# compiler that ships with Windows, because editors and other programs start tools without a shell and can't run `.cmd` files; on macOS and Linux it is a `sh` script. If another copy of a tool comes first on PATH (a Rokit, Aftman or Foreman link, a `cargo install`), `sof run tools install` and `doctor` warn about it. A few names can't be tool aliases (`node`, `npm`, `git`, `sh`, `curl`, anything starting with `sof`, and similar): a `sof.toml` from a repository you just cloned must not be able to put a program of that name first on your PATH.
@@ -164,6 +167,8 @@ sof picks the release file for your platform by name (`windows-x86_64`, `win64`,
 **Global tools.** `--global` on `install`, `add`, `remove`, `update`, `outdated`, `list` and `import` uses `~/.sof/tools.toml` (the same `[tools]` table) instead of `sof.toml`. Those tools work in every folder that doesn't pin its own version.
 
 **Lockfile.** `sof run tools lock` writes `sof.tools.lock` next to `sof.toml`: the sha256 of the release file each tool was installed from, for your platform. Commit it. From then on every install checks its download against it, so a release that was swapped after you locked it is refused instead of run. Each platform adds its own lines the first time it installs, `sof run tools install --locked` fails unless the lock already covers every tool (for CI), and `lock --refresh` records this platform's checksums again. The file only exists once you ask for it.
+
+**Verifying.** `sof run tools verify` reads files only: every tool in `[tools]` is installed, came from the file `sof.tools.lock` lists, and the program on disk is still byte for byte the one sof extracted (sof records a checksum of it at install time; tools installed by an older sof or copied from Rokit have none and are reported as such). It exits with 1 when something is wrong, so CI can run it.
 
 **Moving from Rokit, Aftman or Foreman.** In a project that still has a `rokit.toml`, `aftman.toml` or `foreman.toml`, run `sof run tools import`: it adds that file's tools to `sof.toml` (creating it if needed), installs them and leaves the old file alone. Foreman tools from GitLab and version ranges can't be imported (sof pins one exact version); they are listed so you can add them by hand. For the machine itself, there is nothing to do but run `sof run install`: sof copies any version Rokit already downloaded (`~/.rokit/tool-storage`), deletes the `rokit.toml` that earlier sof versions generated in each project (one you wrote yourself is left alone) and the Rokit copy it kept in `~/.sof/rokit`. If `~/.rokit/bin` is still earlier on your PATH than `~/.sof/bin`, Rokit's links run first and no longer know your versions: take it off your PATH (`doctor` says so). `sof run tools rokit` is gone; its commands are built in.
 
@@ -181,15 +186,48 @@ check = ["stylua --check src", "selene src"]      # in order, stopping at the fi
 sof run script build                  # runs it from the folder of that sof.toml
 sof run script check src/Server       # extra arguments go on the end of the last command
 sof run script list                   # every script, and whether you have trusted it
+sof run script --watch lint           # run it, then again whenever a watched file changes
 ```
+
+**Pipelines.** A script can also be a table: `depends` lists scripts that run first (each once per run, even when several scripts need it), `run` is its own command or commands, `parallel = true` runs the `depends` at the same time (the others finish even if one fails, and the script's own commands only start when all of them succeeded), `watch` lists the globs `--watch` polls, and `description` shows in `list`.
+
+```toml
+[scripts]
+lint  = { run = "selene src", watch = ["src/**", "selene.toml"] }
+test  = { run = "lune run tests", watch = ["src/**", "tests/**"] }
+ci    = { depends = ["lint", "test"], parallel = true, run = "rojo build -o game.rbxl", description = "what CI runs" }
+```
+
+One yes covers the whole pipeline: the prompt lists every script in the order it first runs, with all of its commands, and changing a script anywhere in it (or how they depend on each other) asks again. The size limit (25 commands, 3000 characters) counts the pipeline as a whole. `--watch` re-reads `sof.toml` before every run and stops if the pipeline is no longer the one you trusted. Arguments on the command line go on the last command of the script you named, which has to have a `run` of its own for that.
 
 A script runs the versions pinned in `[tools]`, and a tool that starts another tool finds the pinned version of that one too. Scripts are built to be safe to keep in a repository you didn't write:
 
-- **No shell.** A command is split into arguments and started directly, so there are no pipes, redirects, `&&`, `$VARIABLES` or backticks. An unquoted `| & ; < > ( ) $` backtick or `%` is refused with an explanation instead of being guessed at: quote it (`"a && b"`) if you mean it as text, and use an array to run several commands. Globs and `~` are not expanded, and a backslash is just a backslash, so Windows paths work.
-- **Only your tools.** The first word of a command is a tool from `[tools]` (at the version pinned there) or `sof`. It runs from where sof installed it and is never found through PATH; a path or any other program (`sh`, `powershell`, `curl`, `./something`) is refused. A script may ask sof only to set the project up (`sof run install`, `sof run package install|check|outdated|search`, `sof run tools install|list|outdated|doctor|which|lock`), and then only with flags like `--force`: never a path, so it can't be pointed at another project's files (or a network share), and not to publish, sign in, add an add-on or run a tool you haven't pinned. Everything is checked before the first command starts, and if `sof.tools.lock` has a checksum for the tool, the installed copy has to match it.
+- **No shell.** A command is split into arguments and started directly, so there are no pipes, redirects, `&&`, `$VARIABLES` or backticks. An unquoted `| & ; < > ( ), a `#` that starts a word, a backtick or `%` is refused with an explanation instead of being guessed at: quote it (`"a && b"`) if you mean it as text, and use an array to run several commands. Globs and `~` are not expanded, and a backslash is just a backslash, so Windows paths work.
+- **Only your tools.** The first word of a command is a tool from `[tools]` (at the version pinned there) or `sof`. It runs from where sof installed it and is never found through PATH; a path or any other program (`sh`, `powershell`, `curl`, `./something`) is refused. A script may ask sof only to set the project up (`sof run install`, `sof run package install|check|outdated|search`, `sof run tools install|list|outdated|doctor|which|lock|verify`), and then only with flags like `--force`: never a path, so it can't be pointed at another project's files (or a network share), and not to publish, sign in, add an add-on or run a tool you haven't pinned. Everything is checked before the first command starts, and if `sof.tools.lock` has a checksum for the tool, the installed copy has to match it.
 - **You say yes first.** The first time a script runs, sof shows its commands, exactly as they will run, and the tool versions they use, and asks (a script is limited to 25 commands and 3000 characters so all of it fits on the screen; control and invisible characters are refused, and a question that ends without an answer, such as Ctrl-D, is a no). Your yes covers that script in that folder, exactly as shown: if a command changes, or `[tools]` starts pointing at another repository or version, sof asks again. It does not cover files a command reads (a script you hand to `lune`), so read those yourself. `sof run script trust` and `untrust` manage the list, which lives in `~/.sof/script-trust.json`.
 - **Never on its own.** No install, update or other sof command runs a script.
 - **Not without a person.** Without a terminal (CI, an AI agent) a script that isn't trusted is refused, and trusting one needs a terminal. For a CI job you control, `SOF_TRUST_SCRIPTS=1` skips the check.
+
+## Offline installs and CI
+
+```bash
+sof run install --frozen      # CI: fail unless sof.lock and sof.tools.lock already pin everything
+sof run install --offline     # download nothing; use what is installed or in the cache
+sof run cache info            # where the cache is and how big it is
+sof run cache clear [index|packages|tools]
+```
+
+Every install keeps what it downloaded in `~/.sof/cache` (the registry's answers, package archives, tool downloads), so an install that must work without a network just needs to have run once online. `--offline` (or `SOF_OFFLINE=1`) makes `sof run install`, `package install` and `tools install` use only what is installed or cached and say exactly what is missing instead of failing on a connection. `--frozen` is for CI and fresh clones: packages must match `sof.lock` (nothing is re-resolved) and every tool must have a checksum for your platform in `sof.tools.lock` (`sof run tools lock` creates it), so a build can't quietly pick up a different version. Cached archives are checked against the sha256 stored next to them each time they are read, and a package archive is also checked against `sof.lock` and the registry's checksum as always; a tool download is taken from the cache while online only when `sof.tools.lock` names exactly that file.
+
+## Checking your setup
+
+```bash
+sof run doctor            # sof, tools, packages, scripts, add-ons, registry, account
+sof run doctor --fix      # also do what is safe: shims, an add-on's npm dependencies, add-ons another one needs
+sof run doctor --json     # for scripts; exits 1 when there is a problem
+```
+
+Doctor only reads (and, with `--fix`, repairs sof's own setup): it never downloads tools or packages and never touches your files. For those it prints the command to run (`sof run install`, `sof run tools install --force`, ...). Warnings and notes don't change the exit code.
 
 ## Copying a project
 
@@ -216,14 +254,59 @@ An add-on says what it generates in its `sof-addon.json`, as data, so sandboxed 
 
 ```bash
 sof run addon list             # installed and available add-ons
-sof run addon add docs         # then: sof run docs
-sof run addon remove docs
+sof run addon search image     # search the registry's add-ons
+sof run addon info img         # what it does and what it is allowed to do, before you install it
+sof run addon add docs         # then: sof run docs   (add-ons it requires are installed too)
+sof run addon outdated         # installed add-ons with a newer version
+sof run addon remove docs      # refused while another installed add-on requires it (--force)
 sof run addon update
 ```
 
-Available: auto-types, docs, depgraph, atlas, spritesheet, html-luau, template, init, pix, asset, place, uploader, mesh-service, video, webserver, remote-exec, obfuscate, editable-mesh-bypasser.
+Available: auto-types, docs, depgraph, atlas, spritesheet, html-luau, template, init, pix, asset, place, uploader, mesh-service, video, webserver, remote-exec, obfuscate, editable-mesh-bypasser, img, bundle.
 
-Each add-on is a folder in `addons/` with a `sof-addon.json` (`name`, `version`, `command`, `entry`, `export`) and its own `package.json`, so its heavy dependencies (canvas, sharp, ffmpeg, ...) are only installed when you add it. Develop one with `sof run addon add --path addons/<name>`, publish it with `sof run addon publish addons/<name>` (bump its version first; it goes to the registry's admin-only `sofaddon` scope, so it needs `sof run package login` as a registry admin).
+- `sof run img <files|folders|globs> [--format webp] [--quality 80] [--width 1024] [--out dir]` batch-optimizes, resizes and converts images (PNG, JPEG, WebP, AVIF) with sharp; `--dry-run` shows the savings first. Defaults can live in an `[img]` table of `sof.toml`. See `addons/img/README.md`.
+- `sof run bundle [folder] [-o file.zip|file.tar.gz] [--include glob] [--exclude glob] [--list]` packs a folder honoring `.gitignore`, always without `.git` and `node_modules`, with sorted entries and fixed timestamps so the same input gives the same bytes. It is sandboxed. Defaults can live in a `[bundle]` table. See `addons/bundle/README.md`.
+
+Each add-on is a folder in `addons/` with a `sof-addon.json` and its own `package.json`, so its heavy dependencies (canvas, sharp, ffmpeg, ...) are only installed when you add it. The registry's add-ons are published to its admin-only `sofaddon` scope (`sof run addon publish addons/<name>` after bumping its version; it needs `sof run package login` as a registry admin).
+
+### What an add-on may do
+
+`sof run addon add` and `info` list what an add-on is allowed to do: whether it is **sandboxed** (`"sandbox": true`: it runs in a child process under Node's permission model, with no access to your sign-in, to files outside the project, or to other programs), which environment variables it reads, which sov.gg hosts it may ask to use (you are asked first), and what it requires. An add-on that isn't sandboxed runs with all your permissions. `SOF_REQUIRE_SANDBOX=1` makes sof refuse to run those. New add-ons from `addon new` are sandboxed; `addon test` and `publish` warn when `sandbox` isn't declared either way.
+
+### Writing an add-on
+
+```bash
+sof run addon new hello               # scaffolds hello/ (sandboxed; --no-sandbox if it must start programs)
+sof run addon add --path hello        # install the folder while you develop it
+sof run addon test hello              # checks sof-addon.json, loads the entry, runs `npm test`
+```
+
+`sof-addon.json`: `name`, `version`, `command`, `entry`, `export` (default `run`), `usage`, `description`, `sandbox`, `env` (variables a sandboxed add-on may read), `account` (sov.gg hosts), and `requires`:
+
+```json
+"requires": {
+  "sof": ">=2.7.3",
+  "addons": { "docs": "^1.0.0" },
+  "tools": ["ffmpeg"]
+}
+```
+
+`requires.addons` are installed with the add-on (and it can only call those), `requires.tools` are aliases that must be pinned in `[tools]` of the project it runs in, and `requires.sof` is the sof version. An add-on whose requirements aren't met doesn't start and says which command fixes each.
+
+The entry exports `run(argv, host)`. `host` (also available to sandboxed add-ons) has:
+
+| | |
+| --- | --- |
+| `host.args.parse(argv, spec)` | Options and positional arguments from a spec (`flags`: type `boolean`/`string`/`number`/`integer`, `alias`, `repeat`, `default`, `min`/`max`, `choices`; `positional`: `{ name, min, max }`) with readable errors; `--help`, `--no-flag`, `--flag=value` and `--` work |
+| `host.args.help(name, spec, summary)` | A help text built from the same spec |
+| `host.log.info/success/warn/error/step/json`, `host.format.bytes/duration` | Output: results to stdout, progress and errors to stderr |
+| `host.confirm(question)` | Asks on a terminal; `false` without one |
+| `host.config()` | The `[addons.<name>]` table of the project's `sof.toml` |
+| `host.addons.run(command, argv)` | Runs another add-on listed under `requires.addons` and resolves to its exit code. A sandboxed add-on can only call sandboxed ones |
+| `host.tempDir()`, `host.tools.path(alias)` | Not sandboxed add-ons only: a scratch folder; the program a `requires.tools` alias runs |
+| `host.sandboxed`, `host.name`, `host.version` | |
+
+In a test, `createTestHost()` from sof's kit gives a host that records output and answers prompts; `sof run addon test` sets `SOF_ADDON_KIT` to its path (the scaffold's test shows how).
 
 ## Developing sof
 

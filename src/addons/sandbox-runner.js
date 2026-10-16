@@ -34,8 +34,13 @@ process.on("message", (message) => {
   }
 });
 
+const { createKit } = require("./kit");
+
 const host = {
+  ...createKit(),
   sandboxed: true,
+  config: () => call("config.get"),
+  addons: { run: (command, argv) => call("addons.run", { command, argv: argv || [] }) },
   account: {
     request: (options) => call("account.request", options),
     whoami: () => call("account.whoami"),

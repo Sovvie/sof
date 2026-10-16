@@ -1,0 +1,1 @@
+{"name":"sof-addon-img","version":"1.0.0","private":true,"license":"MIT","description":"Batch image optimize, resize and convert","dependencies":{"sharp":"^0.33.5","fast-glob":"^3.3.2","smol-toml":"^1.3.1"}}

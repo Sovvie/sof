@@ -58,6 +58,7 @@ COMMANDS:
   lock                            Record the checksum of each tool's release in sof.tools.lock
   x <owner/repo[@version]> [args] Run a tool once without adding it to a project
   which <alias>                   Show the program an alias runs from here
+  verify                          Check installed tools against sof.tools.lock and against what sof installed
   doctor                          Check that tools are set up correctly
   setup                           Prepare ~/.sof/bin (runs automatically; the sof installer runs it too)
 
@@ -70,7 +71,7 @@ const INSTALL_HELP_TEXT = `
 sof run tools install - Install the tools in [tools]
 
 USAGE:
-  sof run tools install [path/to/sof.toml] [--force] [--locked] [--global]
+  sof run tools install [path/to/sof.toml] [--force] [--locked] [--offline] [--global]
 
 DESCRIPTION:
   Only tools that aren't installed yet (new entries or changed versions) are downloaded. If
@@ -79,6 +80,7 @@ DESCRIPTION:
 OPTIONS:
   --force                         Download every tool again
   --locked                        Fail unless sof.tools.lock has a checksum for every tool on this platform (CI)
+  --offline                       Download nothing: use tools already installed or kept in ~/.sof/cache (SOF_OFFLINE=1 does the same)
   --global                        Install the global tools (~/.sof/tools.toml)
   -h, --help                      Show this help message
 `;
@@ -189,6 +191,18 @@ sof run tools which - Show the program an alias runs from the current folder
 
 USAGE:
   sof run tools which <alias>
+`;
+
+const VERIFY_HELP_TEXT = `
+sof run tools verify - Check the installed tools
+
+USAGE:
+  sof run tools verify [path/to/sof.toml] [--global]
+
+DESCRIPTION:
+  For every tool in [tools]: it is installed, it came from the file sof.tools.lock lists, and the
+  program on disk is still the one sof installed (not replaced or edited since). Reads files only.
+  Exits with 1 when something is wrong.
 `;
 
 const DOCTOR_HELP_TEXT = `
@@ -449,11 +463,14 @@ async function runToolsInstall(configPathArg, options = {}) {
 
 async function runInstall(argv) {
   const { options, positional } = parseOptions(argv, "install", {
-    flags: { "--force": "force", "--locked": "locked", "--global": "global" },
+    flags: { "--force": "force", "--locked": "locked", "--offline": "offline", "--global": "global" },
   });
   if (options.help) {
     console.log(INSTALL_HELP_TEXT);
     process.exit(0);
+  }
+  if (options.offline) {
+    require("../cache").setOffline();
   }
   if (positional.length > 1) {
     throw new Error("tools install accepts at most one positional argument (the config path).");
@@ -853,6 +870,30 @@ async function runDoctor(argv) {
   process.exitCode = problems === 0 ? 0 : 1;
 }
 
+async function runVerify(argv) {
+  const { options, positional } = parseOptions(argv, "verify", { flags: { "--global": "global" } });
+  if (options.help) {
+    console.log(VERIFY_HELP_TEXT);
+    process.exit(0);
+  }
+
+  const config = readTarget(positional[0] || null, options);
+  console.log(`Using config: ${describeConfig(config, options)}`);
+  const lockPath = options.global ? null : lockPathFor(config.configPath);
+  const lock = lockPath ? readToolsLock(lockPath) : { exists: false, entries: [] };
+
+  const result = require("../tools/verify").verifyTools(entriesOf(config), lock);
+  for (const line of result.ok) console.log(`  ✓ ${line}`);
+  for (const line of result.notes) console.log(`  · ${line}`);
+  for (const line of result.problems) console.log(`  ! ${line}`);
+
+  if (!lock.exists && !options.global) {
+    console.log(`  · no ${LOCK_FILE_NAME}: create one with sof run tools lock to pin the downloads`);
+  }
+  console.log(result.problems.length === 0 ? "No problems found." : `${result.problems.length} problem(s) found.`);
+  process.exitCode = result.problems.length === 0 ? 0 : 1;
+}
+
 async function runSetup(argv) {
   const { options } = parseOptions(argv, "setup", { flags: { "--quiet": "quiet" } });
   if (options.help) {
@@ -896,6 +937,7 @@ async function runTools(argv) {
     lock: runLock,
     which: runWhich,
     x: runX,
+    verify: runVerify,
     doctor: runDoctor,
     setup: runSetup,
     "self-update": async () => {
@@ -914,6 +956,8 @@ async function runTools(argv) {
 
 module.exports = {
   findShadowedTools,
+  setUpTools,
+  shimExists,
   installConfiguredTools,
   runTools,
   runToolsInstall,

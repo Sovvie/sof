@@ -1,7 +1,5 @@
 "use strict";
 
-const path = require("path");
-
 const { findAddonForCommand, readManifest } = require("./addons/store");
 const { safeText } = require("./safe-text");
 
@@ -13,7 +11,7 @@ USAGE:
   sof --help [run] <command ...>
 
 COMMANDS:
-  run install [config]                            Install packages and tools from sof.toml
+  run install [config] [--frozen] [--offline]     Install packages and tools from sof.toml
   run package install [config]                    Install packages from sof.toml
   run package publish [config]                    Publish package(s) from sof.toml
   run package check [config]                      Validate package require alias integrity
@@ -26,7 +24,9 @@ COMMANDS:
   run tools install|add|remove|update|list|...    Tools (rojo, selene, ...) pinned per project in sof.toml
   run script <name>|list|trust|untrust            Project commands from [scripts] in sof.toml (no shell; trusted first)
   run copy <destination>                          Copy a project without ignored or generated files
-  run addon list|add|remove|update|publish       Optional features (docs, video, uploader, ...)
+  run doctor [--fix] [--json]                     Check this setup (sof, tools, packages, add-ons, registry) and fix what is safe
+  run cache info|path|clear                       What sof keeps for offline installs (install --offline)
+  run addon list|search|info|outdated|add|...     Optional features (docs, video, uploader, ...); new|test to write your own
   run self update                                 Update sof itself
 
 OPTIONS:
@@ -82,6 +82,8 @@ const BUILT_IN = {
   tools: () => require("./commands/tools").runTools,
   script: () => require("./commands/script").runScript,
   copy: () => require("./commands/copy").runCopy,
+  cache: () => require("./commands/cache").runCache,
+  doctor: () => require("./commands/doctor").runDoctor,
   addon: () => require("./commands/addon").runAddon,
   self: () => require("./commands/self").runSelf,
 };
@@ -111,25 +113,7 @@ async function runRunCommand(argv) {
 
   const addon = findAddonForCommand(command);
   if (addon) {
-    // An add-on that opted in ("sandbox": true) runs in a restricted child process and uses the
-    // sov.gg account through sof, never holding the login. The rest run in this process.
-    let sandboxed = false;
-    try {
-      sandboxed = require("./addons/store").readAddonDescriptor(addon.directory).sandbox === true;
-    } catch {
-      sandboxed = false;
-    }
-    if (sandboxed) {
-      await require("./addons/run-sandboxed").runSandboxed(addon, rest);
-      return;
-    }
-
-    const module = require(path.join(addon.directory, addon.entry));
-    const run = module[addon.export || "run"];
-    if (typeof run !== "function") {
-      throw new Error(`Add-on "${addon.name}" doesn't export a "${addon.export || "run"}" function.`);
-    }
-    await run(rest);
+    await require("./addons/run").runInstalledAddon(addon, rest);
     return;
   }
 

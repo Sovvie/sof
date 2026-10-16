@@ -21,7 +21,7 @@ const { binDirectory, isToolInstalled, readInstallRecord, toolExecutablePath } =
 const SOF_COMMANDS_FOR_SCRIPTS = {
   install: null,
   package: new Set(["install", "check", "outdated", "search"]),
-  tools: new Set(["install", "list", "outdated", "doctor", "which", "lock"]),
+  tools: new Set(["install", "list", "outdated", "doctor", "which", "lock", "verify"]),
 };
 
 // Beyond the command, only flags (--force, --frozen, --global, ...) are accepted: a value could be a
@@ -39,7 +39,7 @@ function checkSofCommand(argv, scriptName) {
   if (allowed === undefined || (allowed !== null && !allowed.has(subcommand))) {
     throw new Error(
       `script "${scriptName}": a script can ask sof only to set the project up: ` +
-        `sof run install, sof run package install|check|outdated|search, sof run tools install|list|outdated|doctor|which|lock ` +
+        `sof run install, sof run package install|check|outdated|search, sof run tools install|list|outdated|doctor|which|lock|verify ` +
         `(not "${argv.join(" ")}").`
     );
   }
@@ -134,13 +134,13 @@ function scriptEnvironment(baseEnvironment = process.env) {
 
 // Runs the steps in order from `directory`, stopping at the first that fails. extraArguments go on
 // the end of the last command. Resolves to the exit code.
-async function runSteps(steps, { directory, extraArguments = [], environment = scriptEnvironment() }) {
+async function runSteps(steps, { directory, extraArguments = [], environment = scriptEnvironment(), label = "" }) {
   for (let index = 0; index < steps.length; index += 1) {
     const step = steps[index];
     const last = index === steps.length - 1;
     const args = last ? [...step.args, ...extraArguments] : step.args;
 
-    console.error(`> ${[step.text, ...(last ? extraArguments : [])].join(" ")}`);
+    console.error(`> ${label ? `[${label}] ` : ""}${[step.text, ...(last ? extraArguments : [])].join(" ")}`);
     const code = await spawnTool(step.executable, args, { cwd: directory, env: environment });
     if (code !== 0) {
       console.error(`sof: "${step.text}" exited with ${code}${steps.length > 1 ? ` (step ${index + 1} of ${steps.length}); nothing after it ran` : ""}.`);
@@ -150,8 +150,54 @@ async function runSteps(steps, { directory, extraArguments = [], environment = s
   return 0;
 }
 
+// plan: { root, nodes: [{ name, depends, parallel, steps }] } with every node already resolved.
+// Each script runs once: after the scripts it depends on (one after another, or all at the same
+// time with parallel = true, in which case the others finish even if one fails), then its own
+// commands. extraArguments go on the last command of the root script. Resolves to an exit code.
+async function runPlan(plan, { directory, extraArguments = [], environment = scriptEnvironment() }) {
+  const byName = new Map(plan.nodes.map((node) => [node.name, node]));
+  const started = new Map();
+  const labelled = plan.nodes.length > 1;
+
+  const execute = (name) => {
+    if (!started.has(name)) {
+      started.set(
+        name,
+        (async () => {
+          const node = byName.get(name);
+          let code = 0;
+          if (node.parallel) {
+            const codes = await Promise.all(node.depends.map(execute));
+            code = codes.find((value) => value !== 0) || 0;
+          } else {
+            for (const dependency of node.depends) {
+              code = await execute(dependency);
+              if (code !== 0) {
+                break;
+              }
+            }
+          }
+          if (code !== 0) {
+            return code;
+          }
+          return runSteps(node.steps, {
+            directory,
+            environment,
+            extraArguments: name === plan.root ? extraArguments : [],
+            label: labelled ? name : "",
+          });
+        })()
+      );
+    }
+    return started.get(name);
+  };
+
+  return execute(plan.root);
+}
+
 module.exports = {
   resolveScript,
+  runPlan,
   runSteps,
   scriptEnvironment,
 };
