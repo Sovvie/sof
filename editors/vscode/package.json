@@ -1,0 +1,293 @@
+{
+  "name": "sof",
+  "displayName": "sof",
+  "description": "Version tags, update hints and package/version IntelliSense for sof.toml, backed by the sof package index.",
+  "version": "0.1.1",
+  "publisher": "sovvie",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "sof",
+    "roblox",
+    "luau",
+    "package manager",
+    "toml"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sovvie/sof.git",
+    "directory": "editors/vscode"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "A workspace can point the registry URL at another server, so that setting is ignored until the workspace is trusted.",
+      "restrictedConfigurations": [
+        "sof.registryUrl"
+      ]
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "sof.refresh",
+        "title": "Refresh Package Info",
+        "category": "sof"
+      },
+      {
+        "command": "sof.updateDependencies",
+        "title": "Update Dependencies...",
+        "category": "sof"
+      },
+      {
+        "command": "sof.updateAll",
+        "title": "Update All Dependencies in This File",
+        "category": "sof"
+      },
+      {
+        "command": "sof.openOnRegistry",
+        "title": "Open Package on the Registry...",
+        "category": "sof"
+      },
+      {
+        "command": "sof.runInstall",
+        "title": "Run Install (sof run package install)",
+        "category": "sof"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "sof.refresh",
+          "when": "resourceFilename =~ /(^|\\.)sof\\.toml$/"
+        },
+        {
+          "command": "sof.updateDependencies",
+          "when": "resourceFilename =~ /(^|\\.)sof\\.toml$/"
+        },
+        {
+          "command": "sof.updateAll",
+          "when": "resourceFilename =~ /(^|\\.)sof\\.toml$/"
+        },
+        {
+          "command": "sof.openOnRegistry",
+          "when": "resourceFilename =~ /(^|\\.)sof\\.toml$/"
+        },
+        {
+          "command": "sof.runInstall",
+          "when": "resourceFilename =~ /(^|\\.)sof\\.toml$/"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "sof",
+      "properties": {
+        "sof.registryUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Base URL of the sof package index. Empty uses the `SOF_REGISTRY_URL` environment variable, then `https://sof.sov.gg`.",
+          "scope": "window"
+        },
+        "sof.wally.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Look up packages the sof index does not hold in the Wally index, the same fallback the sof CLI uses."
+        },
+        "sof.inlineTags.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a small tag after each dependency saying whether a newer version exists."
+        },
+        "sof.inlineTags.showUpToDate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also tag dependencies that are already on the latest version."
+        },
+        "sof.includePrereleases": {
+          "type": "boolean",
+          "default": false,
+          "description": "Offer prerelease versions (1.0.0-beta.1) as updates."
+        },
+        "sof.cacheMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "How long package info is reused before it is checked again."
+        },
+        "sof.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Underline invalid dependency strings, unknown packages, ranges nothing satisfies and yanked versions."
+        },
+        "sof.diagnostics.outdated": {
+          "type": "string",
+          "enum": [
+            "off",
+            "hint",
+            "information",
+            "warning"
+          ],
+          "default": "off",
+          "description": "Also report dependencies that have a newer version, or that sof.lock has not caught up with, as a diagnostic of this severity."
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "sof.tag.upToDateForeground",
+        "description": "Text color of the tag on a dependency that is up to date.",
+        "defaults": {
+          "dark": "#6fbf8e",
+          "light": "#2e7d4f",
+          "highContrast": "#6fbf8e",
+          "highContrastLight": "#1b5e3a"
+        }
+      },
+      {
+        "id": "sof.tag.upToDateBackground",
+        "description": "Background color of the tag on a dependency that is up to date.",
+        "defaults": {
+          "dark": "#6fbf8e1a",
+          "light": "#2e7d4f14",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "sof.tag.updateForeground",
+        "description": "Text color of the tag on a dependency with a newer minor or patch version.",
+        "defaults": {
+          "dark": "#6cb6ff",
+          "light": "#0b69c7",
+          "highContrast": "#6cb6ff",
+          "highContrastLight": "#0b4f99"
+        }
+      },
+      {
+        "id": "sof.tag.updateBackground",
+        "description": "Background color of the tag on a dependency with a newer minor or patch version.",
+        "defaults": {
+          "dark": "#6cb6ff1f",
+          "light": "#0b69c716",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "sof.tag.majorForeground",
+        "description": "Text color of the tag on a dependency with a newer major version.",
+        "defaults": {
+          "dark": "#e5b567",
+          "light": "#9a6700",
+          "highContrast": "#e5b567",
+          "highContrastLight": "#7a5200"
+        }
+      },
+      {
+        "id": "sof.tag.majorBackground",
+        "description": "Background color of the tag on a dependency with a newer major version.",
+        "defaults": {
+          "dark": "#e5b56724",
+          "light": "#9a67001a",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "sof.tag.problemForeground",
+        "description": "Text color of the tag on a dependency that cannot be installed (no matching version, yanked).",
+        "defaults": {
+          "dark": "#f48771",
+          "light": "#c0392b",
+          "highContrast": "#f48771",
+          "highContrastLight": "#a32418"
+        }
+      },
+      {
+        "id": "sof.tag.problemBackground",
+        "description": "Background color of the tag on a dependency that cannot be installed.",
+        "defaults": {
+          "dark": "#f4877126",
+          "light": "#c0392b1a",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "sof.tag.mutedForeground",
+        "description": "Text color of the tag while a package is being checked, or when it is unknown or unreachable.",
+        "defaults": {
+          "dark": "#8b8b95",
+          "light": "#6b6b75",
+          "highContrast": "#b8b8c2",
+          "highContrastLight": "#4a4a52"
+        }
+      },
+      {
+        "id": "sof.tag.mutedBackground",
+        "description": "Background color of the muted tag.",
+        "defaults": {
+          "dark": "#8b8b9518",
+          "light": "#6b6b7512",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "sof.tag.installForeground",
+        "description": "Text color of the tag on a dependency that sof.lock has not caught up with (changed range, not installed yet).",
+        "defaults": {
+          "dark": "#c4a7f5",
+          "light": "#6f42c1",
+          "highContrast": "#c4a7f5",
+          "highContrastLight": "#553098"
+        }
+      },
+      {
+        "id": "sof.tag.installBackground",
+        "description": "Background color of the not-installed tag.",
+        "defaults": {
+          "dark": "#c4a7f526",
+          "light": "#6f42c11a",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc -p jsconfig.json",
+    "test": "node --test test/*.test.js",
+    "test:integration": "node esbuild.js && node test/integration/run.js",
+    "smoke": "node test/smoke-live.js",
+    "package": "node esbuild.js --production && vsce package --no-dependencies",
+    "publish-stores": "node scripts/publish.js",
+    "screenshots": "node esbuild.js && node scripts/screenshots.js"
+  },
+  "dependencies": {
+    "semver": "^7.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/semver": "^7.5.8",
+    "@types/vscode": "1.85.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "ovsx": "^1.2.0",
+    "typescript": "^5.6.0"
+  }
+}

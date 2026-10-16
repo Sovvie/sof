@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "types": ["node", "vscode"],
+    "paths": {
+      "string_decoder": ["./node_modules/@types/node/string_decoder.d.ts"]
+    }
+  },
+  "include": ["src/**/*.js"]
+}
