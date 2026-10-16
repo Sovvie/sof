@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const childProcess = require("child_process");
+const tar = require("tar");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -261,7 +262,8 @@ function archive(descriptor) {
   fs.writeFileSync(path.join(folder, "sof-addon.json"), JSON.stringify({ command: descriptor.name, entry: "src/main.js", ...descriptor }));
   fs.writeFileSync(path.join(folder, "src", "main.js"), "exports.run = async () => {};\n");
   const file = path.join(tempDir(), "a.tar.gz");
-  childProcess.execFileSync("tar", ["czf", file, "-C", folder, "sof-addon.json", "src"]);
+  // The tar package, not a `tar` program: GNU tar (Git for Windows) reads "C:\..." as a remote host.
+  tar.c({ file, gzip: true, cwd: folder, portable: true, sync: true }, ["sof-addon.json", "src"]);
   return fs.readFileSync(file);
 }
 
